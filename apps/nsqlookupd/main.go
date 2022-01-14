@@ -60,6 +60,7 @@ func (p *program) Init(env svc.Environment) error {
 func (p *program) Start() error {
 	opts := nsqlookupd.NewOptions()
 
+	// 通过flagSet覆盖默认配置选项
 	flagSet := nsqlookupdFlagSet(opts)
 	flagSet.Parse(os.Args[1:])
 
@@ -71,13 +72,14 @@ func (p *program) Start() error {
 	var cfg config
 	configFile := flagSet.Lookup("config").Value.String()
 	if configFile != "" {
-		_, err := toml.DecodeFile(configFile, &cfg)
+		_, err := toml.DecodeFile(configFile, &cfg) // 读取配置文件
 		if err != nil {
 			logFatal("failed to load config file %s - %s", configFile, err)
 		}
 	}
 	cfg.Validate()
 
+	// 按优先级设置 配置选项
 	options.Resolve(opts, flagSet, cfg)
 	nsqlookupd, err := nsqlookupd.New(opts)
 	if err != nil {

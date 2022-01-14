@@ -52,7 +52,7 @@ func New(opts *Options) (*NSQLookupd, error) {
 // Main starts an instance of nsqlookupd and returns an
 // error if there was a problem starting up.
 func (l *NSQLookupd) Main() error {
-	exitCh := make(chan error)
+	exitCh := make(chan error) // 退出channel
 	var once sync.Once
 	exitFunc := func(err error) {
 		once.Do(func() {

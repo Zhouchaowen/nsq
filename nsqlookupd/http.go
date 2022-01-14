@@ -20,7 +20,7 @@ type httpServer struct {
 func newHTTPServer(l *NSQLookupd) *httpServer {
 	log := http_api.Log(l.logf)
 
-	router := httprouter.New()
+	router := httprouter.New() // 自定义错误请求返回
 	router.HandleMethodNotAllowed = true
 	router.PanicHandler = http_api.LogPanicHandler(l.logf)
 	router.NotFound = http_api.LogNotFoundHandler(l.logf)
@@ -120,7 +120,7 @@ func (s *httpServer) doLookup(w http.ResponseWriter, req *http.Request, ps httpr
 	channels := s.nsqlookupd.DB.FindRegistrations("channel", topicName, "*").SubKeys()
 	producers := s.nsqlookupd.DB.FindProducers("topic", topicName, "")
 	producers = producers.FilterByActive(s.nsqlookupd.opts.InactiveProducerTimeout,
-		s.nsqlookupd.opts.TombstoneLifetime)
+		s.nsqlookupd.opts.TombstoneLifetime) // 过滤活跃生产者
 	return map[string]interface{}{
 		"channels":  channels,
 		"producers": producers.PeerInfo(),
@@ -144,7 +144,7 @@ func (s *httpServer) doCreateTopic(w http.ResponseWriter, req *http.Request, ps 
 
 	s.nsqlookupd.logf(LOG_INFO, "DB: adding topic(%s)", topicName)
 	key := Registration{"topic", topicName, ""}
-	s.nsqlookupd.DB.AddRegistration(key)
+	s.nsqlookupd.DB.AddRegistration(key) // 注册 Topic
 
 	return nil, nil
 }
@@ -163,7 +163,7 @@ func (s *httpServer) doDeleteTopic(w http.ResponseWriter, req *http.Request, ps 
 	registrations := s.nsqlookupd.DB.FindRegistrations("channel", topicName, "*")
 	for _, registration := range registrations {
 		s.nsqlookupd.logf(LOG_INFO, "DB: removing channel(%s) from topic(%s)", registration.SubKey, topicName)
-		s.nsqlookupd.DB.RemoveRegistration(registration)
+		s.nsqlookupd.DB.RemoveRegistration(registration) // 删除注册及其所有生产者
 	}
 
 	registrations = s.nsqlookupd.DB.FindRegistrations("topic", topicName, "")
@@ -196,7 +196,7 @@ func (s *httpServer) doTombstoneTopicProducer(w http.ResponseWriter, req *http.R
 	for _, p := range producers {
 		thisNode := fmt.Sprintf("%s:%d", p.peerInfo.BroadcastAddress, p.peerInfo.HTTPPort)
 		if thisNode == node {
-			p.Tombstone()
+			p.Tombstone() // TODO
 		}
 	}
 
@@ -260,6 +260,7 @@ type node struct {
 	Topics           []string `json:"topics"`
 }
 
+// TODO
 func (s *httpServer) doNodes(w http.ResponseWriter, req *http.Request, ps httprouter.Params) (interface{}, error) {
 	// dont filter out tombstoned nodes
 	producers := s.nsqlookupd.DB.FindProducers("client", "", "").FilterByActive(

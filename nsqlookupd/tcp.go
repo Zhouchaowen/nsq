@@ -19,6 +19,7 @@ func (p *tcpServer) Handle(conn net.Conn) {
 	// The client should initialize itself by sending a 4 byte sequence indicating
 	// the version of the protocol that it intends to communicate, this will allow us
 	// to gracefully upgrade the protocol away from text/line oriented to whatever...
+	// 交互通信的协议版本
 	buf := make([]byte, 4)
 	_, err := io.ReadFull(conn, buf)
 	if err != nil {
@@ -31,7 +32,7 @@ func (p *tcpServer) Handle(conn net.Conn) {
 	p.nsqlookupd.logf(LOG_INFO, "CLIENT(%s): desired protocol magic '%s'",
 		conn.RemoteAddr(), protocolMagic)
 
-	var prot protocol.Protocol
+	var prot protocol.Protocol // 获取对应协议
 	switch protocolMagic {
 	case "  V1":
 		prot = &LookupProtocolV1{nsqlookupd: p.nsqlookupd}

@@ -53,7 +53,7 @@ func (p *program) Init(env svc.Environment) error {
 	}
 	cfg.Validate()
 
-	options.Resolve(opts, flagSet, cfg)
+	options.Resolve(opts, flagSet, cfg) // 按优先级设置 配置选项
 
 	nsqd, err := nsqd.New(opts)
 	if err != nil {

@@ -8,6 +8,7 @@ import (
 	"github.com/nsqio/nsq/internal/lg"
 )
 
+// 配置选项
 type Options struct {
 	LogLevel  lg.LogLevel `flag:"log-level"`
 	LogPrefix string      `flag:"log-prefix"`
