@@ -92,9 +92,9 @@ func decodeMessage(b []byte) (*Message, error) {
 func writeMessageToBackend(msg *Message, bq BackendQueue) error {
 	buf := bufferPoolGet()
 	defer bufferPoolPut(buf)
-	_, err := msg.WriteTo(buf)
+	_, err := msg.WriteTo(buf) // msg编码为[]byte
 	if err != nil {
 		return err
 	}
-	return bq.Put(buf.Bytes())
+	return bq.Put(buf.Bytes()) // 将 []byte 写入队列
 }

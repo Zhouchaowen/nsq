@@ -15,21 +15,21 @@ import (
 
 type Topic struct {
 	// 64bit atomic vars need to be first for proper alignment on 32bit platforms
-	messageCount uint64
-	messageBytes uint64
+	messageCount uint64 // 累计消息数
+	messageBytes uint64 // 累计消息体的字节数
 
 	sync.RWMutex
 
-	name              string
-	channelMap        map[string]*Channel
-	backend           BackendQueue
-	memoryMsgChan     chan *Message
+	name              string              // topic名，生产和消费时需要指定此名称
+	channelMap        map[string]*Channel // 保存每个channel name和channel指针的映射
+	backend           BackendQueue        // 磁盘队列，当内存memoryMsgChan满时，写入硬盘队列
+	memoryMsgChan     chan *Message       // 消息优先存入这个内存chan
 	startChan         chan int
 	exitChan          chan int
 	channelUpdateChan chan int
 	waitGroup         util.WaitGroupWrapper
 	exitFlag          int32
-	idFactory         *guidFactory
+	idFactory         *guidFactory // id生成器工厂
 
 	ephemeral      bool
 	deleteCallback func(*Topic)
@@ -54,13 +54,13 @@ func NewTopic(topicName string, nsqd *NSQD, deleteCallback func(*Topic)) *Topic 
 		paused:            0,
 		pauseChan:         make(chan int),
 		deleteCallback:    deleteCallback,
-		idFactory:         NewGUIDFactory(nsqd.getOpts().ID),
+		idFactory:         NewGUIDFactory(nsqd.getOpts().ID), // 全局id生成工厂
 	}
 	// create mem-queue only if size > 0 (do not use unbuffered chan)
-	if nsqd.getOpts().MemQueueSize > 0 {
+	if nsqd.getOpts().MemQueueSize > 0 { // 创建 mem-queue
 		t.memoryMsgChan = make(chan *Message, nsqd.getOpts().MemQueueSize)
 	}
-	if strings.HasSuffix(topicName, "#ephemeral") {
+	if strings.HasSuffix(topicName, "#ephemeral") { // TODO
 		t.ephemeral = true
 		t.backend = newDummyBackendQueue()
 	} else {
@@ -68,6 +68,7 @@ func NewTopic(topicName string, nsqd *NSQD, deleteCallback func(*Topic)) *Topic 
 			opts := nsqd.getOpts()
 			lg.Logf(opts.Logger, opts.LogLevel, lg.LogLevel(level), f, args...)
 		}
+		// 持久化队列
 		t.backend = diskqueue.New(
 			topicName,
 			nsqd.getOpts().DataPath,
@@ -80,13 +81,14 @@ func NewTopic(topicName string, nsqd *NSQD, deleteCallback func(*Topic)) *Topic 
 		)
 	}
 
-	t.waitGroup.Wrap(t.messagePump)
+	t.waitGroup.Wrap(t.messagePump) // 通过go协程启动消息泵
 
 	t.nsqd.Notify(t, !t.ephemeral)
 
 	return t
 }
 
+// Start 发送Topic开始通知，开始Topic.messagePump()
 func (t *Topic) Start() {
 	select {
 	case t.startChan <- 1:
@@ -110,7 +112,7 @@ func (t *Topic) GetChannel(channelName string) *Channel {
 	if isNew {
 		// update messagePump state
 		select {
-		case t.channelUpdateChan <- 1:
+		case t.channelUpdateChan <- 1: // Channel 更新通知
 		case <-t.exitChan:
 		}
 	}
@@ -122,11 +124,11 @@ func (t *Topic) GetChannel(channelName string) *Channel {
 func (t *Topic) getOrCreateChannel(channelName string) (*Channel, bool) {
 	channel, ok := t.channelMap[channelName]
 	if !ok {
-		deleteCallback := func(c *Channel) {
+		deleteCallback := func(c *Channel) { // 删除Channel回调
 			t.DeleteExistingChannel(c.name)
 		}
-		channel = NewChannel(t.name, channelName, t.nsqd, deleteCallback)
-		t.channelMap[channelName] = channel
+		channel = NewChannel(t.name, channelName, t.nsqd, deleteCallback) // 创建一个Channel
+		t.channelMap[channelName] = channel                               // 保存到Topic.channelMap
 		t.nsqd.logf(LOG_INFO, "TOPIC(%s): new channel(%s)", t.name, channel.name)
 		return channel, true
 	}
@@ -252,15 +254,15 @@ func (t *Topic) messagePump() {
 	var backendChan <-chan []byte
 
 	// do not pass messages before Start(), but avoid blocking Pause() or GetChannel()
-	for {
+	for { // TODO
 		select {
-		case <-t.channelUpdateChan:
+		case <-t.channelUpdateChan: // 接收 Channel 更新通知 （创建或删除）
 			continue
-		case <-t.pauseChan:
+		case <-t.pauseChan: // 接收暂停通知
 			continue
-		case <-t.exitChan:
+		case <-t.exitChan: // 接收退出通知
 			goto exit
-		case <-t.startChan:
+		case <-t.startChan: // 接收开始通知，开始接收msg
 		}
 		break
 	}
@@ -269,7 +271,7 @@ func (t *Topic) messagePump() {
 		chans = append(chans, c)
 	}
 	t.RUnlock()
-	if len(chans) > 0 && !t.IsPaused() {
+	if len(chans) > 0 && !t.IsPaused() { // TODO Topic是没有暂停
 		memoryMsgChan = t.memoryMsgChan
 		backendChan = t.backend.ReadChan()
 	}
@@ -277,14 +279,14 @@ func (t *Topic) messagePump() {
 	// main message loop
 	for {
 		select {
-		case msg = <-memoryMsgChan:
-		case buf = <-backendChan:
-			msg, err = decodeMessage(buf)
+		case msg = <-memoryMsgChan: // 从内存channel获取msg
+		case buf = <-backendChan: // 从持久化队列获取msg
+			msg, err = decodeMessage(buf) // 解码[]byte
 			if err != nil {
 				t.nsqd.logf(LOG_ERROR, "failed to decode message - %s", err)
 				continue
 			}
-		case <-t.channelUpdateChan:
+		case <-t.channelUpdateChan: // 接收 Channel 更新通知 （创建或删除）
 			chans = chans[:0]
 			t.RLock()
 			for _, c := range t.channelMap {
@@ -299,7 +301,7 @@ func (t *Topic) messagePump() {
 				backendChan = t.backend.ReadChan()
 			}
 			continue
-		case <-t.pauseChan:
+		case <-t.pauseChan: // 接收暂停通知
 			if len(chans) == 0 || t.IsPaused() {
 				memoryMsgChan = nil
 				backendChan = nil
@@ -308,26 +310,26 @@ func (t *Topic) messagePump() {
 				backendChan = t.backend.ReadChan()
 			}
 			continue
-		case <-t.exitChan:
+		case <-t.exitChan: // 接收退出通知
 			goto exit
 		}
 
-		for i, channel := range chans {
+		for i, channel := range chans { // 将msg发送到当前Topic下的每一个Channel
 			chanMsg := msg
 			// copy the message because each channel
 			// needs a unique instance but...
 			// fastpath to avoid copy if its the first channel
 			// (the topic already created the first copy)
 			if i > 0 {
-				chanMsg = NewMessage(msg.ID, msg.Body)
+				chanMsg = NewMessage(msg.ID, msg.Body) // 封装msg
 				chanMsg.Timestamp = msg.Timestamp
 				chanMsg.deferred = msg.deferred
 			}
-			if chanMsg.deferred != 0 {
+			if chanMsg.deferred != 0 { // 延时消息
 				channel.PutMessageDeferred(chanMsg, chanMsg.deferred)
 				continue
 			}
-			err := channel.PutMessage(chanMsg)
+			err := channel.PutMessage(chanMsg) // 发送msg到内存Channel或持久化队列
 			if err != nil {
 				t.nsqd.logf(LOG_ERROR,
 					"TOPIC(%s) ERROR: failed to put msg(%s) to channel(%s) - %s",

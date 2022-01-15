@@ -65,11 +65,11 @@ func (p *program) Init(env svc.Environment) error {
 }
 
 func (p *program) Start() error {
-	err := p.nsqd.LoadMetadata()
+	err := p.nsqd.LoadMetadata() // 从文件加载元数据，并获取或创建对应的Topics和Channels 并启动消息的接收
 	if err != nil {
 		logFatal("failed to load metadata - %s", err)
 	}
-	err = p.nsqd.PersistMetadata()
+	err = p.nsqd.PersistMetadata() // 持久化元数据
 	if err != nil {
 		logFatal("failed to persist metadata - %s", err)
 	}

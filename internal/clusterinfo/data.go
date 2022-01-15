@@ -134,6 +134,7 @@ func (c *ClusterInfo) GetLookupdTopicChannels(topic string, lookupdHTTPAddrs []s
 		go func(addr string) {
 			defer wg.Done()
 
+			// 发起请求从lookupd获取对应TopicName的Channels
 			endpoint := fmt.Sprintf("http://%s/channels?topic=%s", addr, url.QueryEscape(topic))
 			c.logf("CI: querying nsqlookupd %s", endpoint)
 
@@ -157,8 +158,8 @@ func (c *ClusterInfo) GetLookupdTopicChannels(topic string, lookupdHTTPAddrs []s
 		return nil, fmt.Errorf("Failed to query any nsqlookupd: %s", ErrList(errs))
 	}
 
-	channels = stringy.Uniq(channels)
-	sort.Strings(channels)
+	channels = stringy.Uniq(channels) // 去重
+	sort.Strings(channels)            // 排序
 
 	if len(errs) > 0 {
 		return channels, ErrList(errs)

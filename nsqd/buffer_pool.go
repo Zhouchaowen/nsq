@@ -13,6 +13,7 @@ func init() {
 	}
 }
 
+// buffer复用池
 func bufferPoolGet() *bytes.Buffer {
 	return bp.Get().(*bytes.Buffer)
 }

@@ -63,7 +63,7 @@ func (p *protocolV2) IOLoop(c protocol.Client) error {
 
 		// ReadSlice does not allocate new space for the data each request
 		// ie. the returned slice is only valid until the next call to it
-		line, err = client.Reader.ReadSlice('\n')
+		line, err = client.Reader.ReadSlice('\n') // 解析请求参数
 		if err != nil {
 			if err == io.EOF {
 				err = nil
@@ -84,7 +84,7 @@ func (p *protocolV2) IOLoop(c protocol.Client) error {
 		p.nsqd.logf(LOG_DEBUG, "PROTOCOL(V2): [%s] %s", client, params)
 
 		var response []byte
-		response, err = p.Exec(client, params)
+		response, err = p.Exec(client, params) // 执行
 		if err != nil {
 			ctx := ""
 			if parentErr := err.(protocol.ChildErr).Parent(); parentErr != nil {
@@ -106,7 +106,7 @@ func (p *protocolV2) IOLoop(c protocol.Client) error {
 		}
 
 		if response != nil {
-			err = p.Send(client, frameTypeResponse, response)
+			err = p.Send(client, frameTypeResponse, response) // 响应
 			if err != nil {
 				err = fmt.Errorf("failed to send response - %s", err)
 				break
@@ -115,7 +115,7 @@ func (p *protocolV2) IOLoop(c protocol.Client) error {
 	}
 
 	p.nsqd.logf(LOG_INFO, "PROTOCOL(V2): [%s] exiting ioloop", client)
-	close(client.ExitChan)
+	close(client.ExitChan) // 发送client关闭通知
 	if client.Channel != nil {
 		client.Channel.RemoveClient(client.ID)
 	}
@@ -168,35 +168,35 @@ func (p *protocolV2) Send(client *clientV2, frameType int32, data []byte) error 
 }
 
 func (p *protocolV2) Exec(client *clientV2, params [][]byte) ([]byte, error) {
-	if bytes.Equal(params[0], []byte("IDENTIFY")) {
+	if bytes.Equal(params[0], []byte("IDENTIFY")) { //身份认证
 		return p.IDENTIFY(client, params)
 	}
-	err := enforceTLSPolicy(client, p, params[0])
+	err := enforceTLSPolicy(client, p, params[0]) //TLS 加密
 	if err != nil {
 		return nil, err
 	}
 	switch {
-	case bytes.Equal(params[0], []byte("FIN")):
+	case bytes.Equal(params[0], []byte("FIN")): //消费确认
 		return p.FIN(client, params)
-	case bytes.Equal(params[0], []byte("RDY")):
+	case bytes.Equal(params[0], []byte("RDY")): //Ready 确认当前接收消息能力
 		return p.RDY(client, params)
-	case bytes.Equal(params[0], []byte("REQ")):
+	case bytes.Equal(params[0], []byte("REQ")): //重新消费
 		return p.REQ(client, params)
-	case bytes.Equal(params[0], []byte("PUB")):
+	case bytes.Equal(params[0], []byte("PUB")): //单消息发布
 		return p.PUB(client, params)
-	case bytes.Equal(params[0], []byte("MPUB")):
+	case bytes.Equal(params[0], []byte("MPUB")): //多消息发布
 		return p.MPUB(client, params)
-	case bytes.Equal(params[0], []byte("DPUB")):
+	case bytes.Equal(params[0], []byte("DPUB")): //带延时的发布
 		return p.DPUB(client, params)
-	case bytes.Equal(params[0], []byte("NOP")):
+	case bytes.Equal(params[0], []byte("NOP")): //心跳检测
 		return p.NOP(client, params)
-	case bytes.Equal(params[0], []byte("TOUCH")):
+	case bytes.Equal(params[0], []byte("TOUCH")): //更新消息的超时时间（msgTimeout ）
 		return p.TOUCH(client, params)
-	case bytes.Equal(params[0], []byte("SUB")):
+	case bytes.Equal(params[0], []byte("SUB")): //订阅
 		return p.SUB(client, params)
-	case bytes.Equal(params[0], []byte("CLS")):
+	case bytes.Equal(params[0], []byte("CLS")): //关闭
 		return p.CLS(client, params)
-	case bytes.Equal(params[0], []byte("AUTH")):
+	case bytes.Equal(params[0], []byte("AUTH")): //认证
 		return p.AUTH(client, params)
 	}
 	return nil, protocol.NewFatalClientErr(nil, "E_INVALID", fmt.Sprintf("invalid command %s", params[0]))
@@ -230,6 +230,7 @@ func (p *protocolV2) messagePump(client *clientV2, startedChan chan bool) {
 
 	// signal to the goroutine that started the messagePump
 	// that we've started up
+	// 向启动我们的 messagePump 的 goroutine 发出信号
 	close(startedChan)
 
 	for {
@@ -240,13 +241,13 @@ func (p *protocolV2) messagePump(client *clientV2, startedChan chan bool) {
 			flusherChan = nil
 			// force flush
 			client.writeLock.Lock()
-			err = client.Flush()
+			err = client.Flush() // TODO
 			client.writeLock.Unlock()
 			if err != nil {
 				goto exit
 			}
 			flushed = true
-		} else if flushed {
+		} else if flushed { // TODO
 			// last iteration we flushed...
 			// do not select on the flusher ticker channel
 			memoryMsgChan = subChannel.memoryMsgChan
@@ -261,7 +262,7 @@ func (p *protocolV2) messagePump(client *clientV2, startedChan chan bool) {
 		}
 
 		select {
-		case <-flusherChan:
+		case <-flusherChan: // TODO
 			// if this case wins, we're either starved
 			// or we won the race between other channels...
 			// in either case, force flush
@@ -272,11 +273,11 @@ func (p *protocolV2) messagePump(client *clientV2, startedChan chan bool) {
 				goto exit
 			}
 			flushed = true
-		case <-client.ReadyStateChan:
-		case subChannel = <-subEventChan:
+		case <-client.ReadyStateChan: // 接收读取状态通知
+		case subChannel = <-subEventChan: // TODO
 			// you can't SUB anymore
 			subEventChan = nil
-		case identifyData := <-identifyEventChan:
+		case identifyData := <-identifyEventChan: // TODO
 			// you can't IDENTIFY anymore
 			identifyEventChan = nil
 
@@ -297,12 +298,12 @@ func (p *protocolV2) messagePump(client *clientV2, startedChan chan bool) {
 			}
 
 			msgTimeout = identifyData.MsgTimeout
-		case <-heartbeatChan:
+		case <-heartbeatChan: // 接收心跳通知，发送心跳
 			err = p.Send(client, frameTypeResponse, heartbeatBytes)
 			if err != nil {
 				goto exit
 			}
-		case b := <-backendMsgChan:
+		case b := <-backendMsgChan: // 从持久化队列读取msg
 			if sampleRate > 0 && rand.Int31n(100) > sampleRate {
 				continue
 			}
@@ -314,7 +315,7 @@ func (p *protocolV2) messagePump(client *clientV2, startedChan chan bool) {
 			}
 			msg.Attempts++
 
-			subChannel.StartInFlightTimeout(msg, client.ID, msgTimeout)
+			subChannel.StartInFlightTimeout(msg, client.ID, msgTimeout) // 添加到In-flightMap，保存以发送还未确认的消息
 			client.SendingMessage()
 			err = p.SendMessage(client, msg)
 			if err != nil {
@@ -327,27 +328,28 @@ func (p *protocolV2) messagePump(client *clientV2, startedChan chan bool) {
 			}
 			msg.Attempts++
 
-			subChannel.StartInFlightTimeout(msg, client.ID, msgTimeout)
+			subChannel.StartInFlightTimeout(msg, client.ID, msgTimeout) // 添加到In-Flight
 			client.SendingMessage()
-			err = p.SendMessage(client, msg)
+			err = p.SendMessage(client, msg) // 发送消息
 			if err != nil {
 				goto exit
 			}
 			flushed = false
-		case <-client.ExitChan:
+		case <-client.ExitChan: // 接收退出通知
 			goto exit
 		}
 	}
 
 exit:
 	p.nsqd.logf(LOG_INFO, "PROTOCOL(V2): [%s] exiting messagePump", client)
-	heartbeatTicker.Stop()
+	heartbeatTicker.Stop() // 停止打点器
 	outputBufferTicker.Stop()
 	if err != nil {
 		p.nsqd.logf(LOG_ERROR, "PROTOCOL(V2): [%s] messagePump error - %s", client, err)
 	}
 }
 
+// IDENTIFY 更新服务器上的客户端元数据和协商功能
 func (p *protocolV2) IDENTIFY(client *clientV2, params [][]byte) ([]byte, error) {
 	var err error
 
@@ -360,7 +362,7 @@ func (p *protocolV2) IDENTIFY(client *clientV2, params [][]byte) ([]byte, error)
 		return nil, protocol.NewFatalClientErr(err, "E_BAD_BODY", "IDENTIFY failed to read body size")
 	}
 
-	if int64(bodyLen) > p.nsqd.getOpts().MaxBodySize {
+	if int64(bodyLen) > p.nsqd.getOpts().MaxBodySize { // 判断是否超过最大消息限制
 		return nil, protocol.NewFatalClientErr(nil, "E_BAD_BODY",
 			fmt.Sprintf("IDENTIFY body too big %d > %d", bodyLen, p.nsqd.getOpts().MaxBodySize))
 	}
@@ -377,7 +379,7 @@ func (p *protocolV2) IDENTIFY(client *clientV2, params [][]byte) ([]byte, error)
 	}
 
 	// body is a json structure with producer information
-	var identifyData identifyDataV2
+	var identifyData identifyDataV2 // 生产者信息
 	err = json.Unmarshal(body, &identifyData)
 	if err != nil {
 		return nil, protocol.NewFatalClientErr(err, "E_BAD_BODY", "IDENTIFY failed to decode JSON body")
@@ -385,31 +387,33 @@ func (p *protocolV2) IDENTIFY(client *clientV2, params [][]byte) ([]byte, error)
 
 	p.nsqd.logf(LOG_DEBUG, "PROTOCOL(V2): [%s] %+v", client, identifyData)
 
-	err = client.Identify(identifyData)
+	err = client.Identify(identifyData) // TODO
 	if err != nil {
 		return nil, protocol.NewFatalClientErr(err, "E_BAD_BODY", "IDENTIFY "+err.Error())
 	}
 
 	// bail out early if we're not negotiating features
+	// 如果我们不协商功能，请尽早退出
 	if !identifyData.FeatureNegotiation {
 		return okBytes, nil
 	}
 
-	tlsv1 := p.nsqd.tlsConfig != nil && identifyData.TLSv1
-	deflate := p.nsqd.getOpts().DeflateEnabled && identifyData.Deflate
+	tlsv1 := p.nsqd.tlsConfig != nil && identifyData.TLSv1             // 协商TLS
+	deflate := p.nsqd.getOpts().DeflateEnabled && identifyData.Deflate // 协商是否压缩
 	deflateLevel := 6
-	if deflate && identifyData.DeflateLevel > 0 {
+	if deflate && identifyData.DeflateLevel > 0 { // 协商压缩等级
 		deflateLevel = identifyData.DeflateLevel
 	}
 	if max := p.nsqd.getOpts().MaxDeflateLevel; max < deflateLevel {
 		deflateLevel = max
 	}
-	snappy := p.nsqd.getOpts().SnappyEnabled && identifyData.Snappy
+	snappy := p.nsqd.getOpts().SnappyEnabled && identifyData.Snappy // 协商snappy压缩
 
 	if deflate && snappy {
 		return nil, protocol.NewFatalClientErr(nil, "E_IDENTIFY_FAILED", "cannot enable both deflate and snappy compression")
 	}
 
+	// 构建响应
 	resp, err := json.Marshal(struct {
 		MaxRdyCount         int64  `json:"max_rdy_count"`
 		Version             string `json:"version"`
@@ -443,12 +447,12 @@ func (p *protocolV2) IDENTIFY(client *clientV2, params [][]byte) ([]byte, error)
 		return nil, protocol.NewFatalClientErr(err, "E_IDENTIFY_FAILED", "IDENTIFY failed "+err.Error())
 	}
 
-	err = p.Send(client, frameTypeResponse, resp)
+	err = p.Send(client, frameTypeResponse, resp) // 发生响应
 	if err != nil {
 		return nil, protocol.NewFatalClientErr(err, "E_IDENTIFY_FAILED", "IDENTIFY failed "+err.Error())
 	}
 
-	if tlsv1 {
+	if tlsv1 { // TODO
 		p.nsqd.logf(LOG_INFO, "PROTOCOL(V2): [%s] upgrading connection to TLS", client)
 		err = client.UpgradeTLS()
 		if err != nil {
@@ -461,7 +465,7 @@ func (p *protocolV2) IDENTIFY(client *clientV2, params [][]byte) ([]byte, error)
 		}
 	}
 
-	if snappy {
+	if snappy { // TODO
 		p.nsqd.logf(LOG_INFO, "PROTOCOL(V2): [%s] upgrading connection to snappy", client)
 		err = client.UpgradeSnappy()
 		if err != nil {
@@ -474,7 +478,7 @@ func (p *protocolV2) IDENTIFY(client *clientV2, params [][]byte) ([]byte, error)
 		}
 	}
 
-	if deflate {
+	if deflate { // TODO
 		p.nsqd.logf(LOG_INFO, "PROTOCOL(V2): [%s] upgrading connection to deflate (level %d)", client, deflateLevel)
 		err = client.UpgradeDeflate(deflateLevel)
 		if err != nil {
@@ -672,7 +676,7 @@ func (p *protocolV2) RDY(client *clientV2, params [][]byte) ([]byte, error) {
 			fmt.Sprintf("RDY count %d out of range 0-%d", count, p.nsqd.getOpts().MaxRdyCount))
 	}
 
-	client.SetReadyCount(count)
+	client.SetReadyCount(count) // 以原子的方式更新clientV2.ReadyCount，并尝试更新读取状态
 
 	return nil, nil
 }
@@ -692,13 +696,13 @@ func (p *protocolV2) FIN(client *clientV2, params [][]byte) ([]byte, error) {
 		return nil, protocol.NewFatalClientErr(nil, "E_INVALID", err.Error())
 	}
 
-	err = client.Channel.FinishMessage(client.ID, *id)
+	err = client.Channel.FinishMessage(client.ID, *id) // 从in-flightMap和in-flightPQ中删除指定clientId和MsgId的消息
 	if err != nil {
 		return nil, protocol.NewClientErr(err, "E_FIN_FAILED",
 			fmt.Sprintf("FIN %s failed %s", *id, err.Error()))
 	}
 
-	client.FinishedMessage()
+	client.FinishedMessage() // 更新消息统计并尝试更新读取状态
 
 	return nil, nil
 }
@@ -718,17 +722,17 @@ func (p *protocolV2) REQ(client *clientV2, params [][]byte) ([]byte, error) {
 		return nil, protocol.NewFatalClientErr(nil, "E_INVALID", err.Error())
 	}
 
-	timeoutMs, err := protocol.ByteToBase10(params[2])
+	timeoutMs, err := protocol.ByteToBase10(params[2]) // 超时
 	if err != nil {
 		return nil, protocol.NewFatalClientErr(err, "E_INVALID",
 			fmt.Sprintf("REQ could not parse timeout %s", params[2]))
 	}
-	timeoutDuration := time.Duration(timeoutMs) * time.Millisecond
+	timeoutDuration := time.Duration(timeoutMs) * time.Millisecond // 超时时间
 
 	maxReqTimeout := p.nsqd.getOpts().MaxReqTimeout
 	clampedTimeout := timeoutDuration
 
-	if timeoutDuration < 0 {
+	if timeoutDuration < 0 { // 调整超时时间
 		clampedTimeout = 0
 	} else if timeoutDuration > maxReqTimeout {
 		clampedTimeout = maxReqTimeout
@@ -739,13 +743,14 @@ func (p *protocolV2) REQ(client *clientV2, params [][]byte) ([]byte, error) {
 		timeoutDuration = clampedTimeout
 	}
 
+	// 先将Msg从in-flightMap和in-flightPQ移除，再添加到重排deferredMessagesMap和延时重排队列DeferredPQ
 	err = client.Channel.RequeueMessage(client.ID, *id, timeoutDuration)
 	if err != nil {
 		return nil, protocol.NewClientErr(err, "E_REQ_FAILED",
 			fmt.Sprintf("REQ %s failed %s", *id, err.Error()))
 	}
 
-	client.RequeuedMessage()
+	client.RequeuedMessage() // 更新重排信息添加，并尝试更新读取状态
 
 	return nil, nil
 }

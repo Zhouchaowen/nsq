@@ -27,18 +27,18 @@ const (
 
 type identifyDataV2 struct {
 	ClientID            string `json:"client_id"`
-	Hostname            string `json:"hostname"`
-	HeartbeatInterval   int    `json:"heartbeat_interval"`
-	OutputBufferSize    int    `json:"output_buffer_size"`
-	OutputBufferTimeout int    `json:"output_buffer_timeout"`
-	FeatureNegotiation  bool   `json:"feature_negotiation"`
-	TLSv1               bool   `json:"tls_v1"`
-	Deflate             bool   `json:"deflate"`
-	DeflateLevel        int    `json:"deflate_level"`
-	Snappy              bool   `json:"snappy"`
-	SampleRate          int32  `json:"sample_rate"`
-	UserAgent           string `json:"user_agent"`
-	MsgTimeout          int    `json:"msg_timeout"`
+	Hostname            string `json:"hostname"`              // 部署了客户端的主机名
+	HeartbeatInterval   int    `json:"heartbeat_interval"`    // 心跳的毫秒数.
+	OutputBufferSize    int    `json:"output_buffer_size"`    // 当 nsqd 写到这个客户端时将会用到的缓存的大小（字节数）
+	OutputBufferTimeout int    `json:"output_buffer_timeout"` // 超时后，nsqd 缓冲的数据都会刷新到此客户端
+	FeatureNegotiation  bool   `json:"feature_negotiation"`   //  用来标示客户端支持的协商特性。
+	TLSv1               bool   `json:"tls_v1"`                // 允许 TLS 来连接
+	Deflate             bool   `json:"deflate"`               // 允许 deflate 压缩这次连接
+	DeflateLevel        int    `json:"deflate_level"`         // 配置 deflate 压缩这次连接的级别
+	Snappy              bool   `json:"snappy"`                // 允许 snappy 压缩这次连接
+	SampleRate          int32  `json:"sample_rate"`           // 投递此次连接的消息接收率。
+	UserAgent           string `json:"user_agent"`            // 客户端的代理字符串
+	MsgTimeout          int    `json:"msg_timeout"`           // 配置服务端发送消息给客户端的超时时间
 }
 
 type identifyEvent struct {
@@ -275,7 +275,7 @@ func (c *clientV2) Identify(data identifyDataV2) error {
 
 	// update the client's message pump
 	select {
-	case c.IdentifyEventChan <- ie:
+	case c.IdentifyEventChan <- ie: // 发送确认事件通知
 	default:
 	}
 
@@ -394,8 +394,8 @@ func (c *clientV2) IsReadyForMessages() bool {
 		return false
 	}
 
-	readyCount := atomic.LoadInt64(&c.ReadyCount)
-	inFlightCount := atomic.LoadInt64(&c.InFlightCount)
+	readyCount := atomic.LoadInt64(&c.ReadyCount)       // 能接受的最大消息
+	inFlightCount := atomic.LoadInt64(&c.InFlightCount) // 还未确认的消息数
 
 	c.nsqd.logf(LOG_DEBUG, "[%s] state rdy: %4d inflt: %4d", c, readyCount, inFlightCount)
 
@@ -406,6 +406,7 @@ func (c *clientV2) IsReadyForMessages() bool {
 	return true
 }
 
+// SetReadyCount 以原子的方式更新ReadyCount
 func (c *clientV2) SetReadyCount(count int64) {
 	oldCount := atomic.SwapInt64(&c.ReadyCount, count)
 
@@ -424,6 +425,7 @@ func (c *clientV2) tryUpdateReadyState() {
 	}
 }
 
+// FinishedMessage 更新消息统计并尝试更新读取状态 tryUpdateReadyState()
 func (c *clientV2) FinishedMessage() {
 	atomic.AddUint64(&c.FinishCount, 1)
 	atomic.AddInt64(&c.InFlightCount, -1)
@@ -435,6 +437,7 @@ func (c *clientV2) Empty() {
 	c.tryUpdateReadyState()
 }
 
+// SendingMessage 记录正在发送还未收到确认的消息数（In-Flight）和发送的消息数
 func (c *clientV2) SendingMessage() {
 	atomic.AddInt64(&c.InFlightCount, 1)
 	atomic.AddUint64(&c.MessageCount, 1)
@@ -451,6 +454,7 @@ func (c *clientV2) TimedOutMessage() {
 	c.tryUpdateReadyState()
 }
 
+// RequeuedMessage 更新重排信息添加，并尝试更新读取状态
 func (c *clientV2) RequeuedMessage() {
 	atomic.AddUint64(&c.RequeueCount, 1)
 	atomic.AddInt64(&c.InFlightCount, -1)
@@ -558,6 +562,7 @@ func (c *clientV2) SetMsgTimeout(msgTimeout int) error {
 	return nil
 }
 
+// UpgradeTLS 升级为TLS协议
 func (c *clientV2) UpgradeTLS() error {
 	c.writeLock.Lock()
 	defer c.writeLock.Unlock()
