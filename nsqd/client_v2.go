@@ -120,25 +120,26 @@ func (s ClientV2Stats) String() string {
 	)
 }
 
+// 保存每个客户端的连接信息。
 type clientV2 struct {
 	// 64bit atomic vars need to be first for proper alignment on 32bit platforms
-	ReadyCount    int64
-	InFlightCount int64
-	MessageCount  uint64
-	FinishCount   uint64
-	RequeueCount  uint64
+	ReadyCount    int64  // client 能接收的消息数目
+	InFlightCount int64  // 发送中的消息数目
+	MessageCount  uint64 // 发送的消息总数
+	FinishCount   uint64 // 发送成功的消息总数
+	RequeueCount  uint64 // 重新发送的消息总数
 
-	pubCounts map[string]uint64
+	pubCounts map[string]uint64 // 作用于 producer，统计生产者向每个 topic 发送的消息数目
 
 	writeLock sync.RWMutex
 	metaLock  sync.RWMutex
 
-	ID        int64
-	nsqd      *NSQD
+	ID        int64 // client ID
+	nsqd      *NSQD // 上下文作用域，存放当前 nsqd
 	UserAgent string
 
 	// original connection
-	net.Conn
+	net.Conn // client 和 nsqd server 的连接
 
 	// connections based on negotiated features
 	tlsConn     *tls.Conn
@@ -149,36 +150,36 @@ type clientV2 struct {
 	Writer *bufio.Writer
 
 	OutputBufferSize    int
-	OutputBufferTimeout time.Duration
+	OutputBufferTimeout time.Duration // 每隔多少时间，bufio writer flush 一次
 
-	HeartbeatInterval time.Duration
+	HeartbeatInterval time.Duration // 心跳间隔
 
-	MsgTimeout time.Duration
+	MsgTimeout time.Duration // 消息超时时间
 
-	State          int32
-	ConnectTime    time.Time
-	Channel        *Channel
-	ReadyStateChan chan int
-	ExitChan       chan int
+	State          int32     // client 当前状态
+	ConnectTime    time.Time // client 连上 nsqd server 的时间点
+	Channel        *Channel  // client 消费的 channel
+	ReadyStateChan chan int  // client param 更新的 chan
+	ExitChan       chan int  // client 退出的 chan
 
-	ClientID string
+	ClientID string // 标识 client 的 key，默认等于 hostname
 	Hostname string
 
-	SampleRate int32
+	SampleRate int32 // 客户端的消费速度，例如 SampleRate 为 80，如果 rand 一个 0-100 的随机数大于 80，本次 client 则不消费
 
-	IdentifyEventChan chan identifyEvent
-	SubEventChan      chan *Channel
+	IdentifyEventChan chan identifyEvent // IDENTITY 请求的回调 chan
+	SubEventChan      chan *Channel      // client subscribe channel 的回调 chan
 
-	TLS     int32
-	Snappy  int32
-	Deflate int32
+	TLS     int32 // 是否 tls 加密
+	Snappy  int32 // 是否 snappy 压缩
+	Deflate int32 // 是否 deflate 压缩
 
 	// re-usable buffer for reading the 4-byte lengths off the wire
 	lenBuf   [4]byte
 	lenSlice []byte
 
-	AuthSecret string
-	AuthState  *auth.State
+	AuthSecret string      // 鉴权秘钥
+	AuthState  *auth.State // client 的权限状态
 }
 
 func newClientV2(id int64, conn net.Conn, nsqd *NSQD) *clientV2 {
@@ -237,6 +238,7 @@ func (c *clientV2) Type() int {
 	return typeConsumer
 }
 
+// client 向 nsqd server 发送 IDENTITY 请求，给 client 的一些 param 赋值
 func (c *clientV2) Identify(data identifyDataV2) error {
 	c.nsqd.logf(LOG_INFO, "[%s] IDENTIFY: %+v", c, data)
 
@@ -443,6 +445,7 @@ func (c *clientV2) SendingMessage() {
 	atomic.AddUint64(&c.MessageCount, 1)
 }
 
+// PublishedMessage 发布消息数量+count
 func (c *clientV2) PublishedMessage(topic string, count uint64) {
 	c.metaLock.Lock()
 	c.pubCounts[topic] += count
@@ -463,9 +466,9 @@ func (c *clientV2) RequeuedMessage() {
 
 func (c *clientV2) StartClose() {
 	// Force the client into ready 0
-	c.SetReadyCount(0)
+	c.SetReadyCount(0) // 强制客户端进入就绪 0
 	// mark this client as closing
-	atomic.StoreInt32(&c.State, stateClosing)
+	atomic.StoreInt32(&c.State, stateClosing) // 设置client关闭状态
 }
 
 func (c *clientV2) Pause() {
@@ -640,6 +643,7 @@ func (c *clientV2) Flush() error {
 	return nil
 }
 
+// QueryAuthd 查询认证信息赋值到clientV2.AuthState
 func (c *clientV2) QueryAuthd() error {
 	remoteIP, _, err := net.SplitHostPort(c.String())
 	if err != nil {
@@ -675,13 +679,13 @@ func (c *clientV2) IsAuthorized(topic, channel string) (bool, error) {
 	if c.AuthState == nil {
 		return false, nil
 	}
-	if c.AuthState.IsExpired() {
+	if c.AuthState.IsExpired() { // 判断认证是否到期
 		err := c.QueryAuthd()
 		if err != nil {
 			return false, err
 		}
 	}
-	if c.AuthState.IsAllowed(topic, channel) {
+	if c.AuthState.IsAllowed(topic, channel) { // 认证
 		return true, nil
 	}
 	return false, nil

@@ -189,7 +189,7 @@ func (t *Topic) PutMessage(m *Message) error {
 	if atomic.LoadInt32(&t.exitFlag) == 1 {
 		return errors.New("exiting")
 	}
-	err := t.put(m)
+	err := t.put(m) // 添加消息到内存队列或持久化队列
 	if err != nil {
 		return err
 	}
@@ -223,11 +223,12 @@ func (t *Topic) PutMessages(msgs []*Message) error {
 	return nil
 }
 
+// 添加消息到内存队列或持久化队列
 func (t *Topic) put(m *Message) error {
 	select {
 	case t.memoryMsgChan <- m:
 	default:
-		err := writeMessageToBackend(m, t.backend)
+		err := writeMessageToBackend(m, t.backend) // 添加消息到持久化队列
 		t.nsqd.SetHealth(err)
 		if err != nil {
 			t.nsqd.logf(LOG_ERROR,

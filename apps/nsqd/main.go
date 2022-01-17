@@ -23,6 +23,7 @@ type program struct {
 	nsqd *nsqd.NSQD
 }
 
+// https://github.com/mickey0524/nsq-analysis
 func main() {
 	prg := &program{}
 	if err := svc.Run(prg, syscall.SIGINT, syscall.SIGTERM); err != nil {

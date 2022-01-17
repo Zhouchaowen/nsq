@@ -89,6 +89,7 @@ func decodeMessage(b []byte) (*Message, error) {
 	return &msg, nil
 }
 
+// 添加消息到持久化队列
 func writeMessageToBackend(msg *Message, bq BackendQueue) error {
 	buf := bufferPoolGet()
 	defer bufferPoolPut(buf)

@@ -206,7 +206,7 @@ func (p *protocolV2) messagePump(client *clientV2, startedChan chan bool) {
 	var err error
 	var memoryMsgChan chan *Message
 	var backendMsgChan <-chan []byte
-	var subChannel *Channel
+	var subChannel *Channel // 订阅Channel
 	// NOTE: `flusherChan` is used to bound message latency for
 	// the pathological case of a channel on a low volume topic
 	// with >1 clients having >1 RDY counts
@@ -274,7 +274,7 @@ func (p *protocolV2) messagePump(client *clientV2, startedChan chan bool) {
 			}
 			flushed = true
 		case <-client.ReadyStateChan: // 接收读取状态通知
-		case subChannel = <-subEventChan: // TODO
+		case subChannel = <-subEventChan: // 订阅事件通知
 			// you can't SUB anymore
 			subEventChan = nil
 		case identifyData := <-identifyEventChan: // TODO
@@ -555,7 +555,7 @@ func (p *protocolV2) AUTH(client *clientV2, params [][]byte) ([]byte, error) {
 		return nil, protocol.NewFatalClientErr(err, "E_AUTH_ERROR", "AUTH error "+err.Error())
 	}
 
-	err = p.Send(client, frameTypeResponse, resp)
+	err = p.Send(client, frameTypeResponse, resp) // 响应
 	if err != nil {
 		return nil, protocol.NewFatalClientErr(err, "E_AUTH_ERROR", "AUTH error "+err.Error())
 	}
@@ -567,12 +567,12 @@ func (p *protocolV2) AUTH(client *clientV2, params [][]byte) ([]byte, error) {
 func (p *protocolV2) CheckAuth(client *clientV2, cmd, topicName, channelName string) error {
 	// if auth is enabled, the client must have authorized already
 	// compare topic/channel against cached authorization data (refetching if expired)
-	if client.nsqd.IsAuthEnabled() {
+	if client.nsqd.IsAuthEnabled() { // 判断授权是否开启
 		if !client.HasAuthorizations() {
 			return protocol.NewFatalClientErr(nil, "E_AUTH_FIRST",
 				fmt.Sprintf("AUTH required before %s", cmd))
 		}
-		ok, err := client.IsAuthorized(topicName, channelName)
+		ok, err := client.IsAuthorized(topicName, channelName) // 认证
 		if err != nil {
 			// we don't want to leak errors contacting the auth server to untrusted clients
 			p.nsqd.logf(LOG_WARN, "PROTOCOL(V2): [%s] AUTH failed %s", client, err)
@@ -636,10 +636,10 @@ func (p *protocolV2) SUB(client *clientV2, params [][]byte) ([]byte, error) {
 		}
 		break
 	}
-	atomic.StoreInt32(&client.State, stateSubscribed)
+	atomic.StoreInt32(&client.State, stateSubscribed) // 设置订阅状态
 	client.Channel = channel
-	// update message pump
-	client.SubEventChan <- channel
+	// update message pump 更新消息泵
+	client.SubEventChan <- channel // 订阅事件通知
 
 	return okBytes, nil
 }
@@ -760,7 +760,7 @@ func (p *protocolV2) CLS(client *clientV2, params [][]byte) ([]byte, error) {
 		return nil, protocol.NewFatalClientErr(nil, "E_INVALID", "cannot CLS in current state")
 	}
 
-	client.StartClose()
+	client.StartClose() // 设置关闭状态
 
 	return []byte("CLOSE_WAIT"), nil
 }
@@ -797,24 +797,25 @@ func (p *protocolV2) PUB(client *clientV2, params [][]byte) ([]byte, error) {
 			fmt.Sprintf("PUB message too big %d > %d", bodyLen, p.nsqd.getOpts().MaxMsgSize))
 	}
 
-	messageBody := make([]byte, bodyLen)
+	messageBody := make([]byte, bodyLen) // 读取body
 	_, err = io.ReadFull(client.Reader, messageBody)
 	if err != nil {
 		return nil, protocol.NewFatalClientErr(err, "E_BAD_MESSAGE", "PUB failed to read message body")
 	}
 
+	// 检查认证
 	if err := p.CheckAuth(client, "PUB", topicName, ""); err != nil {
 		return nil, err
 	}
 
 	topic := p.nsqd.GetTopic(topicName)
 	msg := NewMessage(topic.GenerateID(), messageBody)
-	err = topic.PutMessage(msg)
+	err = topic.PutMessage(msg) // 添加消息到内存队列或持久化队列并更新统计信息
 	if err != nil {
 		return nil, protocol.NewFatalClientErr(err, "E_PUB_FAILED", "PUB failed "+err.Error())
 	}
 
-	client.PublishedMessage(topicName, 1)
+	client.PublishedMessage(topicName, 1) // 发布消息数量+1
 
 	return okBytes, nil
 }
@@ -838,7 +839,7 @@ func (p *protocolV2) MPUB(client *clientV2, params [][]byte) ([]byte, error) {
 
 	topic := p.nsqd.GetTopic(topicName)
 
-	bodyLen, err := readLen(client.Reader, client.lenSlice)
+	bodyLen, err := readLen(client.Reader, client.lenSlice) // 读取长度
 	if err != nil {
 		return nil, protocol.NewFatalClientErr(err, "E_BAD_BODY", "MPUB failed to read body size")
 	}
@@ -854,7 +855,7 @@ func (p *protocolV2) MPUB(client *clientV2, params [][]byte) ([]byte, error) {
 	}
 
 	messages, err := readMPUB(client.Reader, client.lenSlice, topic,
-		p.nsqd.getOpts().MaxMsgSize, p.nsqd.getOpts().MaxBodySize)
+		p.nsqd.getOpts().MaxMsgSize, p.nsqd.getOpts().MaxBodySize) // 读取消息
 	if err != nil {
 		return nil, err
 	}
@@ -862,7 +863,7 @@ func (p *protocolV2) MPUB(client *clientV2, params [][]byte) ([]byte, error) {
 	// if we've made it this far we've validated all the input,
 	// the only possible error is that the topic is exiting during
 	// this next call (and no messages will be queued in that case)
-	err = topic.PutMessages(messages)
+	err = topic.PutMessages(messages) // 添加消息到内存队列或持久化队列并更新统计信息
 	if err != nil {
 		return nil, protocol.NewFatalClientErr(err, "E_MPUB_FAILED", "MPUB failed "+err.Error())
 	}
@@ -885,7 +886,7 @@ func (p *protocolV2) DPUB(client *clientV2, params [][]byte) ([]byte, error) {
 			fmt.Sprintf("DPUB topic name %q is not valid", topicName))
 	}
 
-	timeoutMs, err := protocol.ByteToBase10(params[2])
+	timeoutMs, err := protocol.ByteToBase10(params[2]) // 超时时间
 	if err != nil {
 		return nil, protocol.NewFatalClientErr(err, "E_INVALID",
 			fmt.Sprintf("DPUB could not parse timeout %s", params[2]))
@@ -913,7 +914,7 @@ func (p *protocolV2) DPUB(client *clientV2, params [][]byte) ([]byte, error) {
 			fmt.Sprintf("DPUB message too big %d > %d", bodyLen, p.nsqd.getOpts().MaxMsgSize))
 	}
 
-	messageBody := make([]byte, bodyLen)
+	messageBody := make([]byte, bodyLen) // 读取bodyLen长的消息
 	_, err = io.ReadFull(client.Reader, messageBody)
 	if err != nil {
 		return nil, protocol.NewFatalClientErr(err, "E_BAD_MESSAGE", "DPUB failed to read message body")
@@ -924,8 +925,8 @@ func (p *protocolV2) DPUB(client *clientV2, params [][]byte) ([]byte, error) {
 	}
 
 	topic := p.nsqd.GetTopic(topicName)
-	msg := NewMessage(topic.GenerateID(), messageBody)
-	msg.deferred = timeoutDuration
+	msg := NewMessage(topic.GenerateID(), messageBody) // 封装Msg
+	msg.deferred = timeoutDuration                     // 设置延时时间
 	err = topic.PutMessage(msg)
 	if err != nil {
 		return nil, protocol.NewFatalClientErr(err, "E_DPUB_FAILED", "DPUB failed "+err.Error())
@@ -954,7 +955,7 @@ func (p *protocolV2) TOUCH(client *clientV2, params [][]byte) ([]byte, error) {
 	client.writeLock.RLock()
 	msgTimeout := client.MsgTimeout
 	client.writeLock.RUnlock()
-	err = client.Channel.TouchMessage(client.ID, *id, msgTimeout)
+	err = client.Channel.TouchMessage(client.ID, *id, msgTimeout) // 删除in-flightMap和in-flightPQ的旧数据，设置新超时后重新加入
 	if err != nil {
 		return nil, protocol.NewClientErr(err, "E_TOUCH_FAILED",
 			fmt.Sprintf("TOUCH %s failed %s", *id, err.Error()))

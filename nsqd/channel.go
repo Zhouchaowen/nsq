@@ -331,25 +331,25 @@ func (c *Channel) PutMessageDeferred(msg *Message, timeout time.Duration) {
 
 // TouchMessage resets the timeout for an in-flight message
 func (c *Channel) TouchMessage(clientID int64, id MessageID, clientMsgTimeout time.Duration) error {
-	msg, err := c.popInFlightMessage(clientID, id)
+	msg, err := c.popInFlightMessage(clientID, id) // 先从in-flightMap移除
 	if err != nil {
 		return err
 	}
-	c.removeFromInFlightPQ(msg)
+	c.removeFromInFlightPQ(msg) // 先从in-flightPQ移除
 
 	newTimeout := time.Now().Add(clientMsgTimeout)
 	if newTimeout.Sub(msg.deliveryTS) >=
-		c.nsqd.getOpts().MaxMsgTimeout {
+		c.nsqd.getOpts().MaxMsgTimeout { // 调整过期时间
 		// we would have gone over, set to the max
 		newTimeout = msg.deliveryTS.Add(c.nsqd.getOpts().MaxMsgTimeout)
 	}
 
 	msg.pri = newTimeout.UnixNano()
-	err = c.pushInFlightMessage(msg)
+	err = c.pushInFlightMessage(msg) // 从新添加到in-flightMap
 	if err != nil {
 		return err
 	}
-	c.addToInFlightPQ(msg)
+	c.addToInFlightPQ(msg) // 从新添加到in-flightPQ
 	return nil
 }
 
