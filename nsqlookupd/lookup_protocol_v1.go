@@ -64,7 +64,7 @@ func (p *LookupProtocolV1) IOLoop(c protocol.Client) error {
 		}
 
 		if response != nil {
-			_, err = protocol.SendResponse(client, response)
+			_, err = protocol.SendResponse(client, response) // 响应
 			if err != nil {
 				break
 			}
@@ -74,7 +74,7 @@ func (p *LookupProtocolV1) IOLoop(c protocol.Client) error {
 	p.nsqlookupd.logf(LOG_INFO, "PROTOCOL(V1): [%s] exiting ioloop", client)
 
 	// TODO
-	if client.peerInfo != nil { // 退出清除
+	if client.peerInfo != nil { // 退出清除注册表
 		registrations := p.nsqlookupd.DB.LookupRegistrations(client.peerInfo.id)
 		for _, r := range registrations {
 			if removed, _ := p.nsqlookupd.DB.RemoveProducer(r, client.peerInfo.id); removed {
@@ -91,7 +91,7 @@ func (p *LookupProtocolV1) Exec(client *ClientV1, reader *bufio.Reader, params [
 	switch params[0] {
 	case "PING":
 		return p.PING(client, params)
-	case "IDENTIFY":
+	case "IDENTIFY": // 设置生产者信息
 		return p.IDENTIFY(client, reader, params[1:])
 	case "REGISTER":
 		return p.REGISTER(client, reader, params[1:])
@@ -229,7 +229,7 @@ func (p *LookupProtocolV1) IDENTIFY(client *ClientV1, reader *bufio.Reader, para
 
 	peerInfo.RemoteAddress = client.RemoteAddr().String() // 获取client的请求地址
 
-	// require all fields
+	// require all fields 必填字段
 	if peerInfo.BroadcastAddress == "" || peerInfo.TCPPort == 0 || peerInfo.HTTPPort == 0 || peerInfo.Version == "" {
 		return nil, protocol.NewFatalClientErr(nil, "E_BAD_BODY", "IDENTIFY missing fields")
 	}
@@ -239,7 +239,7 @@ func (p *LookupProtocolV1) IDENTIFY(client *ClientV1, reader *bufio.Reader, para
 	p.nsqlookupd.logf(LOG_INFO, "CLIENT(%s): IDENTIFY Address:%s TCP:%d HTTP:%d Version:%s",
 		client, peerInfo.BroadcastAddress, peerInfo.TCPPort, peerInfo.HTTPPort, peerInfo.Version)
 
-	client.peerInfo = &peerInfo // client绑定生产者信息
+	client.peerInfo = &peerInfo // client绑定peerInfo信息
 	if p.nsqlookupd.DB.AddProducer(Registration{"client", "", ""}, &Producer{peerInfo: client.peerInfo}) {
 		p.nsqlookupd.logf(LOG_INFO, "DB: client(%s) REGISTER category:%s key:%s subkey:%s", client, "client", "", "")
 	}

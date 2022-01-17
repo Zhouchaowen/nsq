@@ -19,7 +19,7 @@ func (p *tcpServer) Handle(conn net.Conn) {
 	// The client should initialize itself by sending a 4 byte sequence indicating
 	// the version of the protocol that it intends to communicate, this will allow us
 	// to gracefully upgrade the protocol away from text/line oriented to whatever...
-	// 交互通信的协议版本
+	// 交换通信的协议版本
 	buf := make([]byte, 4)
 	_, err := io.ReadFull(conn, buf)
 	if err != nil {
@@ -44,15 +44,16 @@ func (p *tcpServer) Handle(conn net.Conn) {
 		return
 	}
 
+	// 通过conn连接，获取一个Client，并保存到sync.Map
 	client := prot.NewClient(conn)
 	p.conns.Store(conn.RemoteAddr(), client)
 
-	err = prot.IOLoop(client)
+	err = prot.IOLoop(client) // 循环处理
 	if err != nil {
 		p.nsqlookupd.logf(LOG_ERROR, "client(%s) - %s", conn.RemoteAddr(), err)
 	}
 
-	p.conns.Delete(conn.RemoteAddr())
+	p.conns.Delete(conn.RemoteAddr()) // 从sync.Map移除conn连接
 	client.Close()
 }
 
