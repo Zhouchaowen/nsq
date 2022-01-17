@@ -7,33 +7,34 @@ import (
 	"time"
 )
 
+// 注册表
 type RegistrationDB struct {
 	sync.RWMutex
 	registrationMap map[Registration]ProducerMap
 }
 
 type Registration struct {
-	Category string
-	Key      string
-	SubKey   string
+	Category string // Channel,Topic,nsqd的身份信息
+	Key      string // Topic
+	SubKey   string // Channel
 }
-type Registrations []Registration
+type Registrations []Registration // 注册列表
 
 type PeerInfo struct {
-	lastUpdate       int64
-	id               string
-	RemoteAddress    string `json:"remote_address"`
+	lastUpdate       int64  // 上次心跳检查时间
+	id               string // 节点的唯一ID
+	RemoteAddress    string `json:"remote_address"` // ip地址
 	Hostname         string `json:"hostname"`
-	BroadcastAddress string `json:"broadcast_address"`
+	BroadcastAddress string `json:"broadcast_address"` // 广播地址
 	TCPPort          int    `json:"tcp_port"`
 	HTTPPort         int    `json:"http_port"`
-	Version          string `json:"version"`
+	Version          string `json:"version"` // nsqd版本
 }
 
 type Producer struct {
-	peerInfo     *PeerInfo
-	tombstoned   bool
-	tombstonedAt time.Time
+	peerInfo     *PeerInfo // 生产者信息
+	tombstoned   bool      // 墓碑状态，是否要被移除
+	tombstonedAt time.Time // 墓碑状态开始时间，移除时间
 }
 
 type Producers []*Producer
@@ -52,6 +53,7 @@ func (p *Producer) IsTombstoned(lifetime time.Duration) bool {
 	return p.tombstoned && time.Now().Sub(p.tombstonedAt) < lifetime
 }
 
+// 初始化map[Registration]ProducerMap
 func NewRegistrationDB() *RegistrationDB {
 	return &RegistrationDB{
 		registrationMap: make(map[Registration]ProducerMap),
@@ -158,6 +160,7 @@ func (r *RegistrationDB) FindProducers(category string, key string, subkey strin
 	return retProducers
 }
 
+// 通过ID获取注册列表
 func (r *RegistrationDB) LookupRegistrations(id string) Registrations {
 	r.RLock()
 	defer r.RUnlock()

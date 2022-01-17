@@ -19,7 +19,7 @@ func TCPServer(listener net.Listener, handler TCPHandler, logf lg.AppLogFunc) er
 
 	var wg sync.WaitGroup
 
-	for {
+	for { // 监听连接
 		clientConn, err := listener.Accept()
 		if err != nil {
 			if nerr, ok := err.(net.Error); ok && nerr.Temporary() {
@@ -36,7 +36,7 @@ func TCPServer(listener net.Listener, handler TCPHandler, logf lg.AppLogFunc) er
 
 		wg.Add(1)
 		go func() {
-			handler.Handle(clientConn)
+			handler.Handle(clientConn) // 每个连接启动一个go协程处理
 			wg.Done()
 		}()
 	}
