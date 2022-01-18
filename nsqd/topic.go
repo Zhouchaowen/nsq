@@ -20,28 +20,28 @@ type Topic struct {
 
 	sync.RWMutex
 
-	name              string              // topic名，生产和消费时需要指定此名称
-	channelMap        map[string]*Channel // 保存每个channel name和channel指针的映射
-	backend           BackendQueue        // 磁盘队列，当内存memoryMsgChan满时，写入硬盘队列
-	memoryMsgChan     chan *Message       // 消息优先存入这个内存chan
-	startChan         chan int
-	exitChan          chan int
-	channelUpdateChan chan int
-	waitGroup         util.WaitGroupWrapper
-	exitFlag          int32
-	idFactory         *guidFactory // id生成器工厂
+	name              string                // topic名，生产和消费时需要指定此名称
+	channelMap        map[string]*Channel   // 保存每个channel name和channel指针的映射
+	backend           BackendQueue          // 磁盘队列，当内存memoryMsgChan满时，写入硬盘队列
+	memoryMsgChan     chan *Message         // 消息优先存入这个内存chan
+	startChan         chan int              // 启动 chan
+	exitChan          chan int              // 终止 chan
+	channelUpdateChan chan int              // topic 内的 channel map 增加/删除的更新通知
+	waitGroup         util.WaitGroupWrapper // 包裹一层 waitGroup，当执行 Exit 的时候，需要等待部分函数执行完毕
+	exitFlag          int32                 // topic 是否处于退出状态
+	idFactory         *guidFactory          // id生成器工厂
 
-	ephemeral      bool
-	deleteCallback func(*Topic)
+	ephemeral      bool         // topic 是否为临时的，临时的 topic 不会存入磁盘
+	deleteCallback func(*Topic) // 删除的回调函数
 	deleter        sync.Once
 
-	paused    int32
-	pauseChan chan int
+	paused    int32    // topic 是否处于暂停状态
+	pauseChan chan int // pause 事件的回调 chan
 
-	nsqd *NSQD
+	nsqd *NSQD // nsqd 上下文
 }
 
-// Topic constructor
+// NewTopic Topic constructor
 func NewTopic(topicName string, nsqd *NSQD, deleteCallback func(*Topic)) *Topic {
 	t := &Topic{
 		name:              topicName,
@@ -60,7 +60,7 @@ func NewTopic(topicName string, nsqd *NSQD, deleteCallback func(*Topic)) *Topic 
 	if nsqd.getOpts().MemQueueSize > 0 { // 创建 mem-queue
 		t.memoryMsgChan = make(chan *Message, nsqd.getOpts().MemQueueSize)
 	}
-	if strings.HasSuffix(topicName, "#ephemeral") { // TODO
+	if strings.HasSuffix(topicName, "#ephemeral") { // 临时 topic，消息超出内存限制不落磁盘
 		t.ephemeral = true
 		t.backend = newDummyBackendQueue()
 	} else {
@@ -83,7 +83,7 @@ func NewTopic(topicName string, nsqd *NSQD, deleteCallback func(*Topic)) *Topic 
 
 	t.waitGroup.Wrap(t.messagePump) // 通过go协程启动消息泵
 
-	t.nsqd.Notify(t, !t.ephemeral)
+	t.nsqd.Notify(t, !t.ephemeral) // 通知 lookupLoop，新增了一个 Topic，进行 Register 操作
 
 	return t
 }
@@ -104,6 +104,8 @@ func (t *Topic) Exiting() bool {
 // GetChannel performs a thread safe operation
 // to return a pointer to a Channel object (potentially new)
 // for the given Topic
+// 获取 topic 中 name 为 channelName 的 GetChannel
+// 如果不存在，新建一个 channel
 func (t *Topic) GetChannel(channelName string) *Channel {
 	t.Lock()
 	channel, isNew := t.getOrCreateChannel(channelName)
@@ -135,6 +137,7 @@ func (t *Topic) getOrCreateChannel(channelName string) (*Channel, bool) {
 	return channel, false
 }
 
+// GetExistingChannel 获取 topic 中 name 为 channelName 的 channel，如果不存在，返回 nil
 func (t *Topic) GetExistingChannel(channelName string) (*Channel, error) {
 	t.RLock()
 	defer t.RUnlock()
@@ -146,6 +149,7 @@ func (t *Topic) GetExistingChannel(channelName string) (*Channel, error) {
 }
 
 // DeleteExistingChannel removes a channel from the topic only if it exists
+// 将 client 从 nsqd 的 clientMap 中删除
 func (t *Topic) DeleteExistingChannel(channelName string) error {
 	t.RLock()
 	channel, ok := t.channelMap[channelName]
@@ -183,6 +187,7 @@ func (t *Topic) DeleteExistingChannel(channelName string) error {
 }
 
 // PutMessage writes a Message to the queue
+// PutMessage 向 topic 写一条消息，如果 memoryMsgQueue 满了，则写入 backendQueue
 func (t *Topic) PutMessage(m *Message) error {
 	t.RLock()
 	defer t.RUnlock()
@@ -199,6 +204,7 @@ func (t *Topic) PutMessage(m *Message) error {
 }
 
 // PutMessages writes multiple Messages to the queue
+// PutMessages 一次性写入多条 message
 func (t *Topic) PutMessages(msgs []*Message) error {
 	t.RLock()
 	defer t.RUnlock()
@@ -223,11 +229,11 @@ func (t *Topic) PutMessages(msgs []*Message) error {
 	return nil
 }
 
-// 添加消息到内存队列或持久化队列
+// 添加消息到内存队列或持久化队列（写入 memoryMsgChan 或者 BackendQueue）
 func (t *Topic) put(m *Message) error {
 	select {
-	case t.memoryMsgChan <- m:
-	default:
+	case t.memoryMsgChan <- m: // 当 chan 中还能写入时，写入 memoryMsgChan
+	default: // 否则，写入 BackendQueue，落入磁盘
 		err := writeMessageToBackend(m, t.backend) // 添加消息到持久化队列
 		t.nsqd.SetHealth(err)
 		if err != nil {
@@ -246,6 +252,9 @@ func (t *Topic) Depth() int64 {
 
 // messagePump selects over the in-memory and backend queue and
 // writes messages to every channel for this topic
+// topic 启动后，执行 messagePump
+// messagePump 从内存中的 memoryMsgChan 以及 BackendQueue 中获取message
+// 并将 message 放入全部的 channel
 func (t *Topic) messagePump() {
 	var msg *Message
 	var buf []byte
@@ -279,7 +288,7 @@ func (t *Topic) messagePump() {
 
 	// main message loop
 	for {
-		select {
+		select { // 从这里可以看到，如果消息已经被写入磁盘的话，nsq 消费消息就是无序的
 		case msg = <-memoryMsgChan: // 从内存channel获取msg
 		case buf = <-backendChan: // 从持久化队列获取msg
 			msg, err = decodeMessage(buf) // 解码[]byte
@@ -321,6 +330,8 @@ func (t *Topic) messagePump() {
 			// needs a unique instance but...
 			// fastpath to avoid copy if its the first channel
 			// (the topic already created the first copy)
+			// 这里 msg 实例要进行深拷贝，因为每个 channel 需要自己的实例
+			// 为了重发/延迟发送等
 			if i > 0 {
 				chanMsg = NewMessage(msg.ID, msg.Body) // 封装msg
 				chanMsg.Timestamp = msg.Timestamp
@@ -374,6 +385,7 @@ func (t *Topic) exit(deleted bool) error {
 	t.waitGroup.Wait()
 
 	if deleted {
+		// topic 删除，topic 下的 channel 同样执行 Delete 操作
 		t.Lock()
 		for _, channel := range t.channelMap {
 			delete(t.channelMap, channel.name)
@@ -382,6 +394,7 @@ func (t *Topic) exit(deleted bool) error {
 		t.Unlock()
 
 		// empty the queue (deletes the backend files, too)
+		// 清空 topic 的消息 chan，删除落在磁盘上的消息
 		t.Empty()
 		return t.backend.Delete()
 	}
@@ -397,6 +410,7 @@ func (t *Topic) exit(deleted bool) error {
 	}
 	t.RUnlock()
 
+	// 将当前内存消息 chan 中的 msg 写入磁盘
 	// write anything leftover to disk
 	t.flush()
 	return t.backend.Close()
@@ -461,10 +475,12 @@ func (t *Topic) AggregateChannelE2eProcessingLatency() *quantile.Quantile {
 	return latencyStream
 }
 
+// Pause 暂停 topic
 func (t *Topic) Pause() error {
 	return t.doPause(true)
 }
 
+// UnPause 取消暂停
 func (t *Topic) UnPause() error {
 	return t.doPause(false)
 }
