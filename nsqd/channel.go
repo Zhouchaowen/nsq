@@ -628,6 +628,7 @@ func (c *Channel) processInFlightQueue(t int64) bool {
 		if ok {
 			client.TimedOutMessage()
 		}
+		// 将消息重新写入channel
 		c.put(msg)
 	}
 

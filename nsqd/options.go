@@ -37,11 +37,21 @@ type Options struct {
 	SyncEvery       int64         `flag:"sync-every"`         // 每个磁盘队列 fsync 的消息数（默认 2500）
 	SyncTimeout     time.Duration `flag:"sync-timeout"`       // 每个磁盘队列 fsync 的持续时间（默认 2 秒）
 
-	QueueScanInterval        time.Duration // 扫描channel的时间间隔
-	QueueScanRefreshInterval time.Duration // 刷新扫描的时间间隔
-	QueueScanSelectionCount  int           `flag:"queue-scan-selection-count"` //
-	QueueScanWorkerPoolMax   int           `flag:"queue-scan-worker-pool-max"` // 最大的扫描池数量
-	QueueScanDirtyPercent    float64       // 标识百分比
+	/*
+	   nsq处理过期数据的算法，总结一下就是，使用协程定时去扫描随机的channel里是否有过期数据。
+	*/
+	// 扫描channel的时间间隔，默认的是每100毫秒扫描一次。
+	QueueScanInterval time.Duration
+	//  刷新扫描的时间间隔 目前的处理方式是调整channel的协程数量。
+	QueueScanRefreshInterval time.Duration
+	// 每次扫描最大的channel数量，默认是20，如果channel的数量小于这个值，则以channel的数量为准。
+	QueueScanSelectionCount int `flag:"queue-scan-selection-count"`
+	// 最大协程数，默认是4，这个数是扫描所有channel的最大协程数，当然channel的数量小于这个参数的话，就调整协程的数量，以最小的为准，
+	// 比如channel的数量为2个，而默认的是4个，那就调扫描的数量为2个
+	QueueScanWorkerPoolMax int `flag:"queue-scan-worker-pool-max"` // 最大的扫描池数量
+	// 标识脏数据 channel的百分比，默认为0.25，eg: channel数量为10,则一次最多扫描10个，查看每个channel是否有过期的数据，
+	// 如果有，则标记为这个channel是有脏数据的，如果有脏数据的channel的数量 占这次扫描的10个channel的比例超过这个百分比,则直接再次进行扫描一次，而不用等到下一次时间点。
+	QueueScanDirtyPercent float64 // 标识百分比
 
 	// msg and command options
 	MsgTimeout    time.Duration `flag:"msg-timeout"`     // 在自动请求消息之前等待的默认持续时间（默认 1m0s）

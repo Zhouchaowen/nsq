@@ -238,7 +238,7 @@ func (c *clientV2) Type() int {
 	return typeConsumer
 }
 
-// client 向 nsqd server 发送 IDENTITY 请求，给 client 的一些 param 赋值
+// Identify client 向 nsqd server 发送 IDENTITY 请求，给 client 的一些 param 赋值
 func (c *clientV2) Identify(data identifyDataV2) error {
 	c.nsqd.logf(LOG_INFO, "[%s] IDENTIFY: %+v", c, data)
 
@@ -391,6 +391,7 @@ func (p *prettyConnectionState) GetVersion() string {
 	}
 }
 
+// IsReadyForMessages 是否已准备好接收消息
 func (c *clientV2) IsReadyForMessages() bool {
 	if c.Channel.IsPaused() {
 		return false
@@ -401,6 +402,7 @@ func (c *clientV2) IsReadyForMessages() bool {
 
 	c.nsqd.logf(LOG_DEBUG, "[%s] state rdy: %4d inflt: %4d", c, readyCount, inFlightCount)
 
+	// 未确认的大于可接收的 或 可接收的为0
 	if inFlightCount >= readyCount || readyCount <= 0 {
 		return false
 	}

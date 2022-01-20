@@ -270,7 +270,7 @@ func (n *NSQD) Main() error {
 		})
 	}
 
-	n.waitGroup.Wrap(n.queueScanLoop)
+	n.waitGroup.Wrap(n.queueScanLoop) //
 	n.waitGroup.Wrap(n.lookupLoop)
 	if n.getOpts().StatsdAddress != "" {
 		n.waitGroup.Wrap(n.statsdLoop)
@@ -617,7 +617,7 @@ func (n *NSQD) resizePool(num int, workCh chan *Channel, responseCh chan bool, c
 			// 说明开启的协程过多，需要关闭协程
 			// closeCh queueScanWorker会中断“守护”协程
 			// 关闭后，将当前开启的协程数量-1
-			closeCh <- 1
+			closeCh <- 1 // 随机关闭一个
 			n.poolSize--
 		} else {
 			// expand
@@ -633,6 +633,8 @@ func (n *NSQD) resizePool(num int, workCh chan *Channel, responseCh chan bool, c
 
 // queueScanWorker receives work (in the form of a channel) from queueScanLoop
 // and processes the deferred and in-flight queues
+// worker从queueScanLoop接收需要处理的channel，处理该channel的in-flight数据与deferred数据。
+// processInFlightQueue与processDeferredQueue函数都会调用c.put(msg)，将数据发送到Channel的memoryMsgChan，进而重新被push到消费者。
 func (n *NSQD) queueScanWorker(workCh chan *Channel, responseCh chan bool, closeCh chan int) {
 	for {
 		select {
@@ -667,6 +669,10 @@ func (n *NSQD) queueScanWorker(workCh chan *Channel, responseCh chan bool, close
 // the loop continues without sleep.
 // 维护并管理 goroutine 池的数量， 这些 goroutine 主要用于处理 channel 中 延时优先级队列和等待消费确认优先级队列。
 // 同时 queueScanLoop 循环随机选择 channel 并交给工作线程池进行处理。
+// queueScanLoop的处理方法模仿了Redis的概率到期算法(probabilistic expiration algorithm)：每过一个QueueScanInterval(默认100ms)间隔，
+// 进行一次概率选择，从所有的channel缓存中随机选择QueueScanSelectionCount(默认20)个channel，如果某个被选中channel的任何一个queue有事可做，
+// 则认为该channel为“脏”channel。如果被选中channel中“脏”channel的比例大于QueueScanDirtyPercent(默认25%)，则不投入睡眠，直接进行下一次概率选择。
+// channel缓存每QueueScanRefreshInterval(默认5s)刷新一次。
 func (n *NSQD) queueScanLoop() {
 	// 发送Channel用
 	workCh := make(chan *Channel, n.getOpts().QueueScanSelectionCount)
@@ -707,7 +713,7 @@ func (n *NSQD) queueScanLoop() {
 			workCh <- channels[i]
 		}
 
-		// 接收worker结果, 统计有多少channel是"脏"的
+		// 接收worker结果,等待这num个channel的处理结果(是否为“脏”channel)， 统计有多少channel是"脏"的，
 		numDirty := 0
 		for i := 0; i < num; i++ {
 			if <-responseCh {
@@ -716,6 +722,7 @@ func (n *NSQD) queueScanLoop() {
 		}
 
 		// 如果dirty的数量超过配置直接进行下一轮
+		// 如果“脏”channel达到一定比例，直接进行下次处理
 		if float64(numDirty)/float64(num) > n.getOpts().QueueScanDirtyPercent {
 			goto loop
 		}
