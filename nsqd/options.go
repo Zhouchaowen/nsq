@@ -37,11 +37,11 @@ type Options struct {
 	SyncEvery       int64         `flag:"sync-every"`         // 每个磁盘队列 fsync 的消息数（默认 2500）
 	SyncTimeout     time.Duration `flag:"sync-timeout"`       // 每个磁盘队列 fsync 的持续时间（默认 2 秒）
 
-	QueueScanInterval        time.Duration
-	QueueScanRefreshInterval time.Duration
-	QueueScanSelectionCount  int `flag:"queue-scan-selection-count"` //
-	QueueScanWorkerPoolMax   int `flag:"queue-scan-worker-pool-max"` //
-	QueueScanDirtyPercent    float64
+	QueueScanInterval        time.Duration // 扫描channel的时间间隔
+	QueueScanRefreshInterval time.Duration // 刷新扫描的时间间隔
+	QueueScanSelectionCount  int           `flag:"queue-scan-selection-count"` //
+	QueueScanWorkerPoolMax   int           `flag:"queue-scan-worker-pool-max"` // 最大的扫描池数量
+	QueueScanDirtyPercent    float64       // 标识百分比
 
 	// msg and command options
 	MsgTimeout    time.Duration `flag:"msg-timeout"`     // 在自动请求消息之前等待的默认持续时间（默认 1m0s）
@@ -69,8 +69,10 @@ type Options struct {
 	StatsdExcludeEphemeral bool          `flag:"statsd-exclude-ephemeral"` //
 
 	// e2e message latency
-	E2EProcessingLatencyWindowTime  time.Duration `flag:"e2e-processing-latency-window-time"`                                         // 计算这段时间的端到端延迟分位数
-	E2EProcessingLatencyPercentiles []float64     `flag:"e2e-processing-latency-percentile" cfg:"e2e_processing_latency_percentiles"` // 消息处理时间百分位数
+	// 计算这段时间的端到端延迟分位数
+	E2EProcessingLatencyWindowTime time.Duration `flag:"e2e-processing-latency-window-time"`
+	// 消息处理时间百分位数
+	E2EProcessingLatencyPercentiles []float64 `flag:"e2e-processing-latency-percentile" cfg:"e2e_processing_latency_percentiles"`
 
 	// TLS config
 	TLSCert             string `flag:"tls-cert"`               // 证书文件路径

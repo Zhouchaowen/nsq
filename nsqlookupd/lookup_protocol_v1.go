@@ -123,6 +123,7 @@ func getTopicChan(command string, params []string) (string, string, error) {
 	return topicName, channelName, nil
 }
 
+// REGISTER 注册一个新的 Registration（创建 topic/channel 的时候发送该指令）
 func (p *LookupProtocolV1) REGISTER(client *ClientV1, reader *bufio.Reader, params []string) ([]byte, error) {
 	if client.peerInfo == nil {
 		return nil, protocol.NewFatalClientErr(nil, "E_INVALID", "client must IDENTIFY")
@@ -150,6 +151,7 @@ func (p *LookupProtocolV1) REGISTER(client *ClientV1, reader *bufio.Reader, para
 	return []byte("OK"), nil
 }
 
+// UNREGISTER 删除一个已注册的 Registration（当 topic/channel delete 的时候发送该指令）
 func (p *LookupProtocolV1) UNREGISTER(client *ClientV1, reader *bufio.Reader, params []string) ([]byte, error) {
 	if client.peerInfo == nil {
 		return nil, protocol.NewFatalClientErr(nil, "E_INVALID", "client must IDENTIFY")
@@ -201,6 +203,7 @@ func (p *LookupProtocolV1) UNREGISTER(client *ClientV1, reader *bufio.Reader, pa
 	return []byte("OK"), nil
 }
 
+// IDENTIFY nsqd 连上 nsqlookupd
 func (p *LookupProtocolV1) IDENTIFY(client *ClientV1, reader *bufio.Reader, params []string) ([]byte, error) {
 	var err error
 
@@ -264,6 +267,7 @@ func (p *LookupProtocolV1) IDENTIFY(client *ClientV1, reader *bufio.Reader, para
 	return response, nil
 }
 
+// PING 心跳包，确认 nsqd 存活
 func (p *LookupProtocolV1) PING(client *ClientV1, params []string) ([]byte, error) {
 	if client.peerInfo != nil { // 更新 lastUpdate
 		// we could get a PING before other commands on the same client connection

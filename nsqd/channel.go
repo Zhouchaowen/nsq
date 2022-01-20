@@ -46,7 +46,7 @@ type Channel struct {
 
 	sync.RWMutex
 
-	topicName string
+	topicName string // Topic的名称
 	name      string // Channel的名称
 	nsqd      *NSQD
 
@@ -58,20 +58,20 @@ type Channel struct {
 
 	// state tracking
 	clients        map[int64]Consumer // 存储消费者clients切片
-	paused         int32
-	ephemeral      bool
-	deleteCallback func(*Channel) // 删除回调
-	deleter        sync.Once      // 删除者
+	paused         int32              // 当前 channel 是否处于暂停状态
+	ephemeral      bool               // channel 是否为临时的
+	deleteCallback func(*Channel)     // 删除回调
+	deleter        sync.Once          // 用于 clients map 为空时候，临时 channel 的删除
 
 	// Stats tracking
 	e2eProcessingLatencyStream *quantile.Quantile
 
 	// TODO: these can be DRYd up
 	deferredMessages map[MessageID]*pqueue.Item // 保存尚未到时间的延迟消费消息
-	deferredPQ       pqueue.PriorityQueue       // 保存尚未到时间的延迟消费消息，最小堆
+	deferredPQ       pqueue.PriorityQueue       // 保存尚未到时间的延迟消费消息，最小堆。
 	deferredMutex    sync.Mutex
 	inFlightMessages map[MessageID]*Message // 保存已推送尚未收到FIN的消息
-	inFlightPQ       inFlightPqueue         // 保存已推送尚未收到FIN的消息，最小堆
+	inFlightPQ       inFlightPqueue         // 保存已推送尚未收到FIN的消息，最小堆(时间越小的排在越前面，用于处理超时的消息)
 	inFlightMutex    sync.Mutex
 }
 
@@ -112,7 +112,7 @@ func NewChannel(topicName string, channelName string, nsqd *NSQD,
 		// Channel持久化队列
 		// backend names, for uniqueness, automatically include the topic...
 		backendName := getBackendName(topicName, channelName)
-		c.backend = diskqueue.New(
+		c.backend = diskqueue.New( // 持久化队列
 			backendName,
 			nsqd.getOpts().DataPath,
 			nsqd.getOpts().MaxBytesPerFile,
@@ -129,6 +129,7 @@ func NewChannel(topicName string, channelName string, nsqd *NSQD,
 	return c
 }
 
+// 初始化in-flight和deferred的Map和PQ
 func (c *Channel) initPQ() {
 	pqSize := int(math.Max(1, float64(c.nsqd.getOpts().MemQueueSize)/10))
 
@@ -149,6 +150,7 @@ func (c *Channel) Exiting() bool {
 }
 
 // Delete empties the channel and closes
+// 删除清空通道并关闭(会将所有消息清空不保存)
 func (c *Channel) Delete() error {
 	return c.exit(true)
 }
@@ -171,6 +173,7 @@ func (c *Channel) exit(deleted bool) error {
 
 		// since we are explicitly deleting a channel (not just at system exit time)
 		// de-register this from the lookupd
+		// 从 lookupd 中取消注册
 		c.nsqd.Notify(c, !c.ephemeral)
 	} else {
 		c.nsqd.logf(LOG_INFO, "CHANNEL(%s): closing", c.name)
@@ -185,15 +188,16 @@ func (c *Channel) exit(deleted bool) error {
 
 	if deleted {
 		// empty the queue (deletes the backend files, too)
-		c.Empty()
+		c.Empty() // 清空队列（也删除后端文件）
 		return c.backend.Delete()
 	}
 
 	// write anything leftover to disk
-	c.flush()
+	c.flush() // 将剩余的任何内容写入磁盘
 	return c.backend.Close()
 }
 
+// 清空memoryMsgChan和backend
 func (c *Channel) Empty() error {
 	c.Lock()
 	defer c.Unlock()
@@ -205,14 +209,14 @@ func (c *Channel) Empty() error {
 
 	for {
 		select {
-		case <-c.memoryMsgChan:
+		case <-c.memoryMsgChan: // 清空内存msg
 		default:
 			goto finish
 		}
 	}
 
 finish:
-	return c.backend.Empty()
+	return c.backend.Empty() // 清空持久化msg
 }
 
 // flush persists all the messages in internal memory buffers to the backend
@@ -224,7 +228,7 @@ func (c *Channel) flush() error {
 	}
 
 	for {
-		select {
+		select { // 将内存中的消息持久化
 		case msg := <-c.memoryMsgChan:
 			err := writeMessageToBackend(msg, c.backend)
 			if err != nil {
@@ -236,7 +240,7 @@ func (c *Channel) flush() error {
 	}
 
 finish:
-	c.inFlightMutex.Lock()
+	c.inFlightMutex.Lock() // 将发生还未确认的消息持久化
 	for _, msg := range c.inFlightMessages {
 		err := writeMessageToBackend(msg, c.backend)
 		if err != nil {
@@ -245,7 +249,7 @@ finish:
 	}
 	c.inFlightMutex.Unlock()
 
-	c.deferredMutex.Lock()
+	c.deferredMutex.Lock() // 将延迟消息持久化
 	for _, item := range c.deferredMessages {
 		msg := item.Value.(*Message)
 		err := writeMessageToBackend(msg, c.backend)
@@ -330,6 +334,7 @@ func (c *Channel) PutMessageDeferred(msg *Message, timeout time.Duration) {
 }
 
 // TouchMessage resets the timeout for an in-flight message
+// TouchMessage 重置飞行中消息的超时
 func (c *Channel) TouchMessage(clientID int64, id MessageID, clientMsgTimeout time.Duration) error {
 	msg, err := c.popInFlightMessage(clientID, id) // 先从in-flightMap移除
 	if err != nil {
@@ -397,6 +402,7 @@ func (c *Channel) RequeueMessage(clientID int64, id MessageID, timeout time.Dura
 }
 
 // AddClient adds a client to the Channel's client list
+// AddClient 将客户端添加到Channel的客户端列表
 func (c *Channel) AddClient(clientID int64, client Consumer) error {
 	c.exitMutex.RLock()
 	defer c.exitMutex.RUnlock()
@@ -426,6 +432,7 @@ func (c *Channel) AddClient(clientID int64, client Consumer) error {
 }
 
 // RemoveClient removes a client from the Channel's client list
+// RemoveClient 从Channel的客户端列表中删除一个客户端
 func (c *Channel) RemoveClient(clientID int64) {
 	c.exitMutex.RLock()
 	defer c.exitMutex.RUnlock()
@@ -450,6 +457,7 @@ func (c *Channel) RemoveClient(clientID int64) {
 	}
 }
 
+// StartInFlightTimeout 将一条消息写入 inFlight 队列
 func (c *Channel) StartInFlightTimeout(msg *Message, clientID int64, timeout time.Duration) error {
 	now := time.Now()
 	msg.clientID = clientID
@@ -555,6 +563,7 @@ func (c *Channel) addToDeferredPQ(item *pqueue.Item) {
 	c.deferredMutex.Unlock()
 }
 
+// 用于 nsqd.go 中的 queueScanLoop，用于 put 延迟发送的消息
 func (c *Channel) processDeferredQueue(t int64) bool {
 	c.exitMutex.RLock()
 	defer c.exitMutex.RUnlock()
@@ -565,7 +574,7 @@ func (c *Channel) processDeferredQueue(t int64) bool {
 
 	dirty := false
 	for {
-		c.deferredMutex.Lock()
+		c.deferredMutex.Lock() // TODO
 		item, _ := c.deferredPQ.PeekAndShift(t)
 		c.deferredMutex.Unlock()
 
@@ -575,17 +584,18 @@ func (c *Channel) processDeferredQueue(t int64) bool {
 		dirty = true
 
 		msg := item.Value.(*Message)
-		_, err := c.popDeferredMessage(msg.ID)
+		_, err := c.popDeferredMessage(msg.ID) // 从deferredMessagesMap 删除
 		if err != nil {
 			goto exit
 		}
-		c.put(msg)
+		c.put(msg) // 发送
 	}
 
 exit:
 	return dirty
 }
 
+// 用于 nsqd.go 中的 queueScanLoop，用于重发超时的消息
 func (c *Channel) processInFlightQueue(t int64) bool {
 	c.exitMutex.RLock()
 	defer c.exitMutex.RUnlock()
@@ -597,6 +607,8 @@ func (c *Channel) processInFlightQueue(t int64) bool {
 	dirty := false
 	for {
 		c.inFlightMutex.Lock()
+		// 没有超时，则返回nil, 然后goto exit->return dirty
+		// 超时了，inFlightPQ弹出并返回msg
 		msg, _ := c.inFlightPQ.PeekAndShift(t)
 		c.inFlightMutex.Unlock()
 
@@ -605,7 +617,7 @@ func (c *Channel) processInFlightQueue(t int64) bool {
 		}
 		dirty = true
 
-		_, err := c.popInFlightMessage(msg.clientID, msg.ID)
+		_, err := c.popInFlightMessage(msg.clientID, msg.ID) // 从inFlightMessageMap 删除
 		if err != nil {
 			goto exit
 		}

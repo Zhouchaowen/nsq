@@ -101,6 +101,7 @@ func (s *httpServer) doChannels(w http.ResponseWriter, req *http.Request, ps htt
 	}, nil
 }
 
+// 返回指定主题的一系列 nsqd 节点
 func (s *httpServer) doLookup(w http.ResponseWriter, req *http.Request, ps httprouter.Params) (interface{}, error) {
 	reqParams, err := http_api.NewReqParams(req)
 	if err != nil {
@@ -175,6 +176,7 @@ func (s *httpServer) doDeleteTopic(w http.ResponseWriter, req *http.Request, ps 
 	return nil, nil
 }
 
+// 屏蔽指定node的一个topic
 func (s *httpServer) doTombstoneTopicProducer(w http.ResponseWriter, req *http.Request, ps httprouter.Params) (interface{}, error) {
 	reqParams, err := http_api.NewReqParams(req)
 	if err != nil {
@@ -260,7 +262,7 @@ type node struct {
 	Topics           []string `json:"topics"`
 }
 
-// TODO
+// 返回一系列的nsqd节点
 func (s *httpServer) doNodes(w http.ResponseWriter, req *http.Request, ps httprouter.Params) (interface{}, error) {
 	// dont filter out tombstoned nodes
 	producers := s.nsqlookupd.DB.FindProducers("client", "", "").FilterByActive(

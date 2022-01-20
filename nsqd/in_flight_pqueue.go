@@ -55,12 +55,13 @@ func (pq *inFlightPqueue) Remove(i int) *Message {
 	return x
 }
 
+// 如果队列中的根部元素大于当前时间戳max的值，则说明队列中没有可以投递的消息，故返回nil
 func (pq *inFlightPqueue) PeekAndShift(max int64) (*Message, int64) {
 	if len(*pq) == 0 {
 		return nil, 0
 	}
 
-	x := (*pq)[0]
+	x := (*pq)[0] // 获取根部元素
 	if x.pri > max {
 		return nil, x.pri - max
 	}

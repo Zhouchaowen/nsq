@@ -39,20 +39,20 @@ type errStore struct {
 
 type NSQD struct {
 	// 64bit atomic vars need to be first for proper alignment on 32bit platforms
-	clientIDSequence int64
+	clientIDSequence int64 // 连接 nsqd tcp server 的 client 数目
 
 	sync.RWMutex
 	ctx context.Context
 	// ctxCancel cancels a context that main() is waiting on
 	ctxCancel context.CancelFunc
 
-	opts atomic.Value
+	opts atomic.Value // nsqd 的配置文件
 
-	dl        *dirlock.DirLock
-	isLoading int32
+	dl        *dirlock.DirLock // 文件锁
+	isLoading int32            // nsqd 是否在读取存储在 datapath 中的 metadata 文件
 	isExiting int32
-	errValue  atomic.Value
-	startTime time.Time
+	errValue  atomic.Value // 错误信息
+	startTime time.Time    // nsqd 开始运行的时间
 
 	topicMap map[string]*Topic // 保存当前所有的topic
 
@@ -64,12 +64,13 @@ type NSQD struct {
 	httpsListener net.Listener
 	tlsConfig     *tls.Config
 
-	poolSize int
+	poolSize int // nsqd 执行 queueScan 的 worker 数目
 
+	// 通知 chan，当 增加/删除 topic/channel 的时候，通知 lookupLoop 进行 Register/Unregister
 	notifyChan           chan interface{}
-	optsNotificationChan chan struct{}
-	exitChan             chan int
-	waitGroup            util.WaitGroupWrapper
+	optsNotificationChan chan struct{}         // 配置文件 chan
+	exitChan             chan int              // 退出 chan
+	waitGroup            util.WaitGroupWrapper // 包裹一层 waitGroup，当执行 Exit 的时候，需要等待部分函数执行完毕
 
 	ci *clusterinfo.ClusterInfo
 }
@@ -599,9 +600,9 @@ func (n *NSQD) channels() []*Channel {
 // resizePool adjusts the size of the pool of queueScanWorker goroutines
 //
 // 	1 <= pool <= min(num * 0.25, QueueScanWorkerPoolMax)
-//
+// 调整queueScanWorker goroutine 池的大小
 func (n *NSQD) resizePool(num int, workCh chan *Channel, responseCh chan bool, closeCh chan int) {
-	idealPoolSize := int(float64(num) * 0.25)
+	idealPoolSize := int(float64(num) * 0.25) // 理想线程池数量,默认最多是 4
 	if idealPoolSize < 1 {
 		idealPoolSize = 1
 	} else if idealPoolSize > n.getOpts().QueueScanWorkerPoolMax {
@@ -612,10 +613,16 @@ func (n *NSQD) resizePool(num int, workCh chan *Channel, responseCh chan bool, c
 			break
 		} else if idealPoolSize < n.poolSize {
 			// contract
+			// 协程池协程容量 < 当前已经开启的协程数量
+			// 说明开启的协程过多，需要关闭协程
+			// closeCh queueScanWorker会中断“守护”协程
+			// 关闭后，将当前开启的协程数量-1
 			closeCh <- 1
 			n.poolSize--
 		} else {
 			// expand
+			// 协程池协程容量 > 当前已经开启的协程数量
+			// 开启新的协程
 			n.waitGroup.Wrap(func() {
 				n.queueScanWorker(workCh, responseCh, closeCh)
 			})
@@ -629,17 +636,17 @@ func (n *NSQD) resizePool(num int, workCh chan *Channel, responseCh chan bool, c
 func (n *NSQD) queueScanWorker(workCh chan *Channel, responseCh chan bool, closeCh chan int) {
 	for {
 		select {
-		case c := <-workCh:
+		case c := <-workCh: // workCh就是从nsqd.topicMap.channelMap中 随机 选择的channels
 			now := time.Now().UnixNano()
 			dirty := false
-			if c.processInFlightQueue(now) {
+			if c.processInFlightQueue(now) { // 消费确认优先级队列
 				dirty = true
 			}
-			if c.processDeferredQueue(now) {
+			if c.processDeferredQueue(now) { // 消费延时优先级队列
 				dirty = true
 			}
 			responseCh <- dirty
-		case <-closeCh:
+		case <-closeCh: // 关闭工作线程
 			return
 		}
 	}
@@ -658,12 +665,17 @@ func (n *NSQD) queueScanWorker(workCh chan *Channel, responseCh chan bool, close
 //
 // If QueueScanDirtyPercent (default: 25%) of the selected channels were dirty,
 // the loop continues without sleep.
+// 维护并管理 goroutine 池的数量， 这些 goroutine 主要用于处理 channel 中 延时优先级队列和等待消费确认优先级队列。
+// 同时 queueScanLoop 循环随机选择 channel 并交给工作线程池进行处理。
 func (n *NSQD) queueScanLoop() {
+	// 发送Channel用
 	workCh := make(chan *Channel, n.getOpts().QueueScanSelectionCount)
 	responseCh := make(chan bool, n.getOpts().QueueScanSelectionCount)
 	closeCh := make(chan int)
 
+	// worker 定时器，用于定时选取一定数量的 channel 默认100s
 	workTicker := time.NewTicker(n.getOpts().QueueScanInterval)
+	// refersh 定时器，用于定时更新刷新channel数量，重新调整协程池，默认时间是5s刷新一次
 	refreshTicker := time.NewTicker(n.getOpts().QueueScanRefreshInterval)
 
 	channels := n.channels()
@@ -675,7 +687,7 @@ func (n *NSQD) queueScanLoop() {
 			if len(channels) == 0 {
 				continue
 			}
-		case <-refreshTicker.C:
+		case <-refreshTicker.C: // 每5s刷新一次，获取Channel，调整queueScanWorker goroutine 池的大小
 			channels = n.channels()
 			n.resizePool(len(channels), workCh, responseCh, closeCh)
 			continue
@@ -683,16 +695,19 @@ func (n *NSQD) queueScanLoop() {
 			goto exit
 		}
 
+		// 每次扫描最大的channel数量，默认是20，如果channel的数量小于这个值，则以channel的数量为准。
 		num := n.getOpts().QueueScanSelectionCount
 		if num > len(channels) {
 			num = len(channels)
 		}
 
 	loop:
+		// UniqRands 是作用是，从 channels 中随机选择 num 个 channel
 		for _, i := range util.UniqRands(num, len(channels)) {
 			workCh <- channels[i]
 		}
 
+		// 接收worker结果, 统计有多少channel是"脏"的
 		numDirty := 0
 		for i := 0; i < num; i++ {
 			if <-responseCh {
@@ -700,6 +715,7 @@ func (n *NSQD) queueScanLoop() {
 			}
 		}
 
+		// 如果dirty的数量超过配置直接进行下一轮
 		if float64(numDirty)/float64(num) > n.getOpts().QueueScanDirtyPercent {
 			goto loop
 		}

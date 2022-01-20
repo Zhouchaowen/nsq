@@ -54,7 +54,7 @@ func New(opts *Options) (*NSQLookupd, error) {
 func (l *NSQLookupd) Main() error {
 	exitCh := make(chan error) // 退出channel
 	var once sync.Once
-	exitFunc := func(err error) {
+	exitFunc := func(err error) { // 错误退出函数
 		once.Do(func() {
 			if err != nil {
 				l.logf(LOG_FATAL, "%s", err)

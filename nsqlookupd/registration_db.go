@@ -7,12 +7,13 @@ import (
 	"time"
 )
 
-// 注册表
+// RegistrationDB 存放一个Registration的全部Producer
 type RegistrationDB struct {
 	sync.RWMutex
 	registrationMap map[Registration]ProducerMap
 }
 
+// Registration 定义 Registration 的种类，例如，Category 可以为 client, topic, channel
 type Registration struct {
 	Category string // Channel,Topic,nsqd的身份信息
 	Key      string // Topic
@@ -20,6 +21,7 @@ type Registration struct {
 }
 type Registrations []Registration // 注册列表
 
+// PeerInfo 定义一个 nsq 节点
 type PeerInfo struct {
 	lastUpdate       int64  // 上次心跳检查时间
 	id               string // 节点的唯一ID
@@ -31,8 +33,9 @@ type PeerInfo struct {
 	Version          string `json:"version"` // nsqd版本
 }
 
+// Producer 存放 nsq 节点的数据结构，以及当前节点是否处于 tombstoned 状态
 type Producer struct {
-	peerInfo     *PeerInfo // 生产者信息
+	peerInfo     *PeerInfo // nsq 信息
 	tombstoned   bool      // 墓碑状态，是否要被移除
 	tombstonedAt time.Time // 墓碑状态开始时间，移除时间
 }
@@ -44,6 +47,7 @@ func (p *Producer) String() string {
 	return fmt.Sprintf("%s [%d, %d]", p.peerInfo.BroadcastAddress, p.peerInfo.TCPPort, p.peerInfo.HTTPPort)
 }
 
+// Tombstone 将 Producer 设为 tombstoned 状态
 func (p *Producer) Tombstone() {
 	p.tombstoned = true
 	p.tombstonedAt = time.Now()
@@ -111,10 +115,12 @@ func (r *RegistrationDB) RemoveRegistration(k Registration) {
 	delete(r.registrationMap, k)
 }
 
+// 当 key 或 subkey 为 * 的时候，代表全选，例如不写 channel 的 topic
 func (r *RegistrationDB) needFilter(key string, subkey string) bool {
 	return key == "*" || subkey == "*"
 }
 
+// FindRegistrations 寻找所有满足要求的 Registrations
 func (r *RegistrationDB) FindRegistrations(category string, key string, subkey string) Registrations {
 	r.RLock()
 	defer r.RUnlock()
