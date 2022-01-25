@@ -31,7 +31,7 @@ type identifyDataV2 struct {
 	HeartbeatInterval   int    `json:"heartbeat_interval"`    // 心跳的毫秒数.
 	OutputBufferSize    int    `json:"output_buffer_size"`    // 当 nsqd 写到这个客户端时将会用到的缓存的大小（字节数）
 	OutputBufferTimeout int    `json:"output_buffer_timeout"` // 超时后，nsqd 缓冲的数据都会刷新到此客户端
-	FeatureNegotiation  bool   `json:"feature_negotiation"`   //  用来标示客户端支持的协商特性。
+	FeatureNegotiation  bool   `json:"feature_negotiation"`   // 用来标示客户端支持的协商特性。
 	TLSv1               bool   `json:"tls_v1"`                // 允许 TLS 来连接
 	Deflate             bool   `json:"deflate"`               // 允许 deflate 压缩这次连接
 	DeflateLevel        int    `json:"deflate_level"`         // 配置 deflate 压缩这次连接的级别
