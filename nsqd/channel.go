@@ -160,6 +160,7 @@ func (c *Channel) Close() error {
 	return c.exit(false)
 }
 
+// deleted 为true时会删除数据
 func (c *Channel) exit(deleted bool) error {
 	c.exitMutex.Lock()
 	defer c.exitMutex.Unlock()
@@ -173,7 +174,7 @@ func (c *Channel) exit(deleted bool) error {
 
 		// since we are explicitly deleting a channel (not just at system exit time)
 		// de-register this from the lookupd
-		// 从 lookupd 中取消注册
+		// 持久化元数据
 		c.nsqd.Notify(c, !c.ephemeral)
 	} else {
 		c.nsqd.logf(LOG_INFO, "CHANNEL(%s): closing", c.name)
@@ -197,7 +198,7 @@ func (c *Channel) exit(deleted bool) error {
 	return c.backend.Close()
 }
 
-// 清空memoryMsgChan和backend
+// Empty 丢弃memoryMsgChan和backend,覆盖Map和PQ
 func (c *Channel) Empty() error {
 	c.Lock()
 	defer c.Unlock()

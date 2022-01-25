@@ -32,7 +32,7 @@ func main() {
 }
 
 func (p *program) Init(env svc.Environment) error {
-	opts := nsqd.NewOptions()
+	opts := nsqd.NewOptions() // 初始化默认配置选项
 
 	flagSet := nsqdFlagSet(opts)
 	flagSet.Parse(os.Args[1:])
@@ -56,7 +56,7 @@ func (p *program) Init(env svc.Environment) error {
 
 	options.Resolve(opts, flagSet, cfg) // 按优先级设置 配置选项
 
-	nsqd, err := nsqd.New(opts)
+	nsqd, err := nsqd.New(opts) // 构建NSQD
 	if err != nil {
 		logFatal("failed to instantiate nsqd - %s", err)
 	}

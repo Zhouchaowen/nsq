@@ -25,6 +25,7 @@ const (
 	stateClosing
 )
 
+// client 向 nsqd tcp server IDENTIFY
 type identifyDataV2 struct {
 	ClientID            string `json:"client_id"`
 	Hostname            string `json:"hostname"`              // 部署了客户端的主机名
@@ -41,6 +42,7 @@ type identifyDataV2 struct {
 	MsgTimeout          int    `json:"msg_timeout"`           // 配置服务端发送消息给客户端的超时时间
 }
 
+// IDENTIFY 完成之后，使用 identifyEvent 记录 client 的一些最新参数，用于更新 nsqd server 的 messagePump
 type identifyEvent struct {
 	OutputBufferTimeout time.Duration
 	HeartbeatInterval   time.Duration

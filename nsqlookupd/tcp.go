@@ -57,7 +57,7 @@ func (p *tcpServer) Handle(conn net.Conn) {
 	client.Close()
 }
 
-// 循环遍历关闭保存的client
+// Close 循环遍历关闭保存的client
 func (p *tcpServer) Close() {
 	p.conns.Range(func(k, v interface{}) bool {
 		v.(protocol.Client).Close()
