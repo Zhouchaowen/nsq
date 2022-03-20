@@ -108,6 +108,7 @@ func (n *NSQD) lookupLoop() {
 		select {
 		case <-ticker:
 			// send a heartbeat and read a response (read detects closed conns)
+			// 发送心跳并读取响应（读取检测到关闭的连接）
 			for _, lookupPeer := range lookupPeers {
 				n.logf(LOG_DEBUG, "LOOKUPD(%s): sending heartbeat", lookupPeer)
 				cmd := nsq.Ping()

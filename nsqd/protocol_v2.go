@@ -38,7 +38,7 @@ func (p *protocolV2) NewClient(conn net.Conn) protocol.Client {
 	return newClientV2(clientID, conn, p.nsqd)               // 对应本次 conn 建立一个 client 实例
 }
 
-// IO 循环，读取流消息并解析
+// IOLoop IO 循环，读取流消息并解析
 func (p *protocolV2) IOLoop(c protocol.Client) error {
 	var err error
 	var line []byte

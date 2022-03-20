@@ -12,10 +12,12 @@ import (
 )
 
 // lookupPeer is a low-level type for connecting/reading/writing to nsqlookupd
-//
-// A lookupPeer instance is designed to connect lazily to nsqlookupd and reconnect
-// gracefully (i.e. it is all handled by the library).  Clients can simply use the
-// Command interface to perform a round-trip.
+////
+//// A lookupPeer instance is designed to connect lazily to nsqlookupd and reconnect
+//// gracefully (i.e. it is all handled by the library).  Clients can simply use the
+//// Command interface to perform a round-trip.
+// lookupPeer 是一种将读写连接到 nsqlookupd 的低级类型 lookupPeer 实例旨在延迟连接到 nsqlookupd 并优雅地重新连接（即，它全部由库处理）。
+// 客户端可以简单地使用命令接口来执行往返。
 type lookupPeer struct {
 	logf            lg.AppLogFunc
 	addr            string

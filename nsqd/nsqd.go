@@ -693,7 +693,7 @@ func (n *NSQD) queueScanLoop() {
 
 	for {
 		select {
-		case <-workTicker.C:
+		case <-workTicker.C: // TODO
 			if len(channels) == 0 {
 				continue
 			}
