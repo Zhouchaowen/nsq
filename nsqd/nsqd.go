@@ -174,7 +174,7 @@ func New(opts *Options) (*NSQD, error) {
 		if prefixWithHost[len(prefixWithHost)-1] != '.' {
 			prefixWithHost += "."
 		}
-		opts.StatsdPrefix = prefixWithHost
+		opts.StatsdPrefix = prefixWithHost // 带主机的前缀
 	}
 
 	return n, nil
@@ -321,10 +321,10 @@ func writeSyncFile(fn string, data []byte) error {
 
 // LoadMetadata 加载元数据，其中保存了 Topics Channels
 func (n *NSQD) LoadMetadata() error {
-	atomic.StoreInt32(&n.isLoading, 1) // 设置正在加载元数据
+	atomic.StoreInt32(&n.isLoading, 1) // 设置正在加载元数据状态
 	defer atomic.StoreInt32(&n.isLoading, 0)
 
-	fn := newMetadataFile(n.getOpts()) // 获取元数据文件 /xx/x/nsqd.dat
+	fn := newMetadataFile(n.getOpts()) // 获取元数据文件Path /xx/x/nsqd.dat
 
 	data, err := readOrEmpty(fn) // 空或读取数据
 	if err != nil {
@@ -334,7 +334,7 @@ func (n *NSQD) LoadMetadata() error {
 		return nil // fresh start
 	}
 
-	var m meta
+	var m meta // 持久化数据结构
 	err = json.Unmarshal(data, &m)
 	if err != nil {
 		return fmt.Errorf("failed to parse metadata in %s - %s", fn, err)
@@ -476,7 +476,7 @@ func (n *NSQD) GetTopic(topicName string) *Topic {
 		return t
 	}
 
-	n.Lock()
+	n.Lock() // TODO 有效避免竞争
 
 	t, ok = n.topicMap[topicName]
 	if ok {
@@ -496,13 +496,14 @@ func (n *NSQD) GetTopic(topicName string) *Topic {
 
 	// if this topic was created while loading metadata at startup don't do any further initialization
 	// (topic will be "started" after loading completes)
+	// 如果当前 nsqd 处于 loading metadata 的状态，在 load 完毕，会进行 topic.Start
 	if atomic.LoadInt32(&n.isLoading) == 1 {
 		return t
 	}
 
 	// if using lookupd, make a blocking call to get channels and immediately create them
 	// to ensure that all channels receive published messages
-	// 如果使用lookupd，请进行阻塞调用以获取频道并立即创建它们以确保所有频道都接收已发布的消息
+	// 如果不处于 loading metadata 的状态，同时使用 nsqlookupd，那么请求 nsqlookupd，获取 topic 对应的全部 channel
 	lookupdHTTPAddrs := n.lookupdHTTPAddrs() // 获取Lookupd的地址
 	if len(lookupdHTTPAddrs) > 0 {
 		channelNames, err := n.ci.GetLookupdTopicChannels(t.name, lookupdHTTPAddrs)
@@ -560,6 +561,7 @@ func (n *NSQD) DeleteExistingTopic(topicName string) error {
 	return nil
 }
 
+// Notify 持久化元数据，告知 lookupLoop，topic 被删除了，执行 UNREGISTER 告知 nsqlookupd
 func (n *NSQD) Notify(v interface{}, persist bool) {
 	// since the in-memory metadata is incomplete,
 	// should not persist metadata while loading it.
@@ -570,7 +572,7 @@ func (n *NSQD) Notify(v interface{}, persist bool) {
 		// we do not block exit, see issue #123
 		select {
 		case <-n.exitChan:
-		case n.notifyChan <- v:
+		case n.notifyChan <- v: // 持久化元数据
 			if loading || !persist {
 				return
 			}

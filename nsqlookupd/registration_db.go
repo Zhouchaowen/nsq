@@ -57,14 +57,14 @@ func (p *Producer) IsTombstoned(lifetime time.Duration) bool {
 	return p.tombstoned && time.Now().Sub(p.tombstonedAt) < lifetime
 }
 
-// 初始化map[Registration]ProducerMap
+// NewRegistrationDB 初始化map[Registration]ProducerMap
 func NewRegistrationDB() *RegistrationDB {
 	return &RegistrationDB{
 		registrationMap: make(map[Registration]ProducerMap),
 	}
 }
 
-// add a registration key
+// AddRegistration add a registration key
 func (r *RegistrationDB) AddRegistration(k Registration) {
 	r.Lock()
 	defer r.Unlock()
@@ -74,7 +74,7 @@ func (r *RegistrationDB) AddRegistration(k Registration) {
 	}
 }
 
-// add a producer to a registration
+// AddProducer add a producer to a registration
 func (r *RegistrationDB) AddProducer(k Registration, p *Producer) bool {
 	r.Lock()
 	defer r.Unlock()
@@ -90,7 +90,7 @@ func (r *RegistrationDB) AddProducer(k Registration, p *Producer) bool {
 	return !found
 }
 
-// remove a producer from a registration
+// RemoveProducer remove a producer from a registration
 func (r *RegistrationDB) RemoveProducer(k Registration, id string) (bool, int) {
 	r.Lock()
 	defer r.Unlock()
@@ -108,7 +108,7 @@ func (r *RegistrationDB) RemoveProducer(k Registration, id string) (bool, int) {
 	return removed, len(producers)
 }
 
-// remove a Registration and all it's producers
+// RemoveRegistration remove a Registration and all it's producers
 func (r *RegistrationDB) RemoveRegistration(k Registration) {
 	r.Lock()
 	defer r.Unlock()
@@ -166,7 +166,7 @@ func (r *RegistrationDB) FindProducers(category string, key string, subkey strin
 	return retProducers
 }
 
-// 通过ID获取注册列表
+// LookupRegistrations 通过ID获取注册列表
 func (r *RegistrationDB) LookupRegistrations(id string) Registrations {
 	r.RLock()
 	defer r.RUnlock()

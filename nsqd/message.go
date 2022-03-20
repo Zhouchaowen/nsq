@@ -18,7 +18,7 @@ type Message struct {
 	ID        MessageID
 	Body      []byte
 	Timestamp int64
-	Attempts  uint16
+	Attempts  uint16 // TODO
 
 	// for in-flight handling
 	deliveryTS time.Time

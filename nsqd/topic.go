@@ -356,6 +356,7 @@ exit:
 }
 
 // Delete empties the topic and all its channels and closes
+// 删除清空主题及其所有频道并关闭
 func (t *Topic) Delete() error {
 	return t.exit(true)
 }
@@ -375,7 +376,7 @@ func (t *Topic) exit(deleted bool) error {
 
 		// since we are explicitly deleting a topic (not just at system exit time)
 		// de-register this from the lookupd
-		t.nsqd.Notify(t, !t.ephemeral)
+		t.nsqd.Notify(t, !t.ephemeral) // 持久化原始数据
 	} else {
 		t.nsqd.logf(LOG_INFO, "TOPIC(%s): closing", t.name)
 	}
