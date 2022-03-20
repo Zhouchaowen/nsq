@@ -106,6 +106,7 @@ func (t *Topic) Exiting() bool {
 // for the given Topic
 // 获取 topic 中 name 为 channelName 的 GetChannel
 // 如果不存在，新建一个 channel
+// 创建Channel一定是通过*Sub来创建的，或者是同步其它NSQD得到，或者是加载元文件得到。不可能是*PUB得到。
 func (t *Topic) GetChannel(channelName string) *Channel {
 	t.Lock()
 	channel, isNew := t.getOrCreateChannel(channelName)

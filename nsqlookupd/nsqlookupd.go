@@ -23,6 +23,9 @@ type NSQLookupd struct {
 	DB           *RegistrationDB
 }
 
+// 构建tcpServer和httpListener
+//
+// 构建RegistrationDB
 func New(opts *Options) (*NSQLookupd, error) {
 	var err error
 

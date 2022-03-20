@@ -38,6 +38,7 @@ func (p *protocolV2) NewClient(conn net.Conn) protocol.Client {
 	return newClientV2(clientID, conn, p.nsqd)               // 对应本次 conn 建立一个 client 实例
 }
 
+// IO 循环，读取流消息并解析
 func (p *protocolV2) IOLoop(c protocol.Client) error {
 	var err error
 	var line []byte
@@ -194,9 +195,9 @@ func (p *protocolV2) Exec(client *clientV2, params [][]byte) ([]byte, error) {
 		return p.MPUB(client, params)
 	case bytes.Equal(params[0], []byte("DPUB")): // producer 延迟发布消息
 		return p.DPUB(client, params)
-	case bytes.Equal(params[0], []byte("NOP")): //心跳检测
+	case bytes.Equal(params[0], []byte("NOP")): // 心跳检测
 		return p.NOP(client, params)
-	case bytes.Equal(params[0], []byte("TOUCH")): //更新消息的超时时间（msgTimeout ）
+	case bytes.Equal(params[0], []byte("TOUCH")): // 更新消息的超时时间（msgTimeout ）
 		return p.TOUCH(client, params)
 	case bytes.Equal(params[0], []byte("SUB")): // consumer 订阅 channel
 		return p.SUB(client, params)

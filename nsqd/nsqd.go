@@ -464,6 +464,8 @@ func (n *NSQD) Exit() {
 
 // GetTopic performs a thread safe operation
 // to return a pointer to a Topic object (potentially new)
+// 这里如果是先通过PUB创建，那只会创建Topic，并且会去其他节点通过TopicName相同的Channels；当Sub来获取时可以直接获取到。
+
 func (n *NSQD) GetTopic(topicName string) *Topic {
 	// most likely we already have this topic, so try read lock first
 	// 很可能我们已经有了这个主题，所以先尝试读锁
